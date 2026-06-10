@@ -28,6 +28,7 @@ Tips：可以在游玩过程中使用 `ESC` 键退出，使用 `Tab` 了解 nesy
 
 ### 任务列表
 > 五个任务的默认配置在 [nesylink/tasks/builtin.py](/nesylink/tasks/builtin.py) 和 [nesylink/tasks/task_config/mathematical_logic.yaml](/nesylink/tasks/task_config/mathematical_logic.yaml) 中定义。可以根据实验需要调整 `max_steps`, `action_repeat` ,`reward` 等训练参数。
+
 > ⚠️本次数理逻辑任务要求使用 `observation_mode="pixels"`，请不要把结构化 obs 作为 agent 输入。提交作业时请明确标注修改过的环境配置。
 
 | task_id | 地图 | 奖励 | 最大步数 | 任务说明 |
@@ -38,29 +39,17 @@ Tips：可以在游玩过程中使用 `ESC` 键退出，使用 `Tab` 了解 nesy
 | `mathematical_logic/task_4` | [map_4](/nesylink/map_data/mathematical_logic/task_4/dungeon.json) | [reward_4](/nesylink/rewards/mathematical_logic/task_4.py) | 2000 | 旋转桥、拿钥匙和剑、击败怪物并打开最终宝箱 |
 | `mathematical_logic/task_5` | [map_5](/nesylink/map_data/mathematical_logic/task_5/dungeon.json) | [reward_5](/nesylink/rewards/mathematical_logic/task_5.py) | 2000 | 探索多房间地牢并打开所有宝箱 |
 
-## Examples 参考实现
 
-仓库的 `examples/` 目录给出了两个 Python 参考实现，用于演示如何通过当前 `nesylink` 框架接口运行内置任务：
-
-| 文件 | 对应任务 | 说明 |
-|---|---|---|
-| `examples/task1_reference.py` | `mathematical_logic/task_1` | 使用固定像素级动作序列完成“拿钥匙并通过北侧锁门”的任务。 |
-| `examples/task2_reference.py` | `mathematical_logic/task_2` | 演示符号状态、邻接谓词和 BFS 子目标规划，完成当前 `mathematical_logic/task_2`。 |
-
-运行方式：
+## 测评
 
 ```bash
-python docs/Mathematical_logic/examples/task1_reference.py
-python docs/Mathematical_logic/examples/task2_reference.py
+python utils/evaluate_policy.py \
+  --policy 你的agent.py \
+  --tasks mathematical_logic/task_3 mathematical_logic/task_4 \
+  --num-envs 10
 ```
 
-它们是本作业给出的参考实现，重点是展示：
-
-1. 如何从 raw pixels 中抽取离散符号状态，并利用 `info` 做状态抽象与调试。
-2. 如何把 tile 级计划展开为像素级动作 replay。
-3. 如何通过 `terminated/truncated`、`info["terminal_reason"]` 和 `info["game"]["world_completed"]` 检查真实环境执行结果。
-
-### 动作空间、观测空间和信息结构
+## 动作空间、观测空间和信息结构
 
 > 本次数理逻辑任务默认使用 `observation_mode="pixels"`。所以 agent 的输入 `obs` 只能是 raw pixels 🥲
 > 先别灰心，环境提供了结构化 `info` 可以用于状态抽象、日志、调试和验证执行结果。
