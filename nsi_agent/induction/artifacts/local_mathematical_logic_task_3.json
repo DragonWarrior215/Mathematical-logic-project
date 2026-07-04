@@ -1,0 +1,226 @@
+{
+ "name": "task_3_logic",
+ "entry": "start",
+ "reactive": [
+  {
+   "pred": "threatened()",
+   "skill": "kill_monster",
+   "args": {
+    "target": null,
+    "direction": null
+   }
+  }
+ ],
+ "nodes": [
+  {
+   "name": "start",
+   "kind": "check",
+   "pred": "exit_state('west') == 'normal'",
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": null,
+   "args": null,
+   "next": null,
+   "on_true": "go_west",
+   "on_false": "check_locked_exit_east",
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "go_west",
+   "kind": "skill",
+   "pred": null,
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": "use_exit",
+   "args": {
+    "target": null,
+    "direction": "'west'"
+   },
+   "next": null,
+   "on_true": null,
+   "on_false": null,
+   "on_success": "check_monsters",
+   "on_fail": "start",
+   "success": null
+  },
+  {
+   "name": "check_monsters",
+   "kind": "check",
+   "pred": "monster_count() > 0",
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": null,
+   "args": null,
+   "next": null,
+   "on_true": "engage_monster",
+   "on_false": "check_chests",
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "engage_monster",
+   "kind": "skill",
+   "pred": null,
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": "kill_monster",
+   "args": {
+    "target": null,
+    "direction": null
+   },
+   "next": null,
+   "on_true": null,
+   "on_false": null,
+   "on_success": "check_chests",
+   "on_fail": "check_monsters",
+   "success": null
+  },
+  {
+   "name": "check_chests",
+   "kind": "check",
+   "pred": "len(closed_chests()) > 0",
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": null,
+   "args": null,
+   "next": null,
+   "on_true": "open_nearest_chest",
+   "on_false": "check_locked_exit_east",
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "open_nearest_chest",
+   "kind": "data",
+   "pred": null,
+   "bind_name": "nearest_chest",
+   "bind_expr": "nearest(closed_chests())",
+   "skill": null,
+   "args": null,
+   "next": "open_chest_action",
+   "on_true": null,
+   "on_false": null,
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "open_chest_action",
+   "kind": "skill",
+   "pred": null,
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": "open_chest",
+   "args": {
+    "target": "nearest_chest",
+    "direction": null
+   },
+   "next": null,
+   "on_true": null,
+   "on_false": null,
+   "on_success": "check_chests",
+   "on_fail": "check_chests",
+   "success": null
+  },
+  {
+   "name": "check_locked_exit_east",
+   "kind": "check",
+   "pred": "exit_state('east') == 'locked' and inv.keys > 0",
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": null,
+   "args": null,
+   "next": null,
+   "on_true": "unlock_exit_east",
+   "on_false": "explore_unexplored",
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "unlock_exit_east",
+   "kind": "skill",
+   "pred": null,
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": "use_exit",
+   "args": {
+    "target": null,
+    "direction": "'east'"
+   },
+   "next": null,
+   "on_true": null,
+   "on_false": null,
+   "on_success": "finish",
+   "on_fail": "check_locked_exit_east",
+   "success": null
+  },
+  {
+   "name": "explore_unexplored",
+   "kind": "data",
+   "pred": null,
+   "bind_name": "next_direction",
+   "bind_expr": "hop_toward('unexplored')",
+   "skill": null,
+   "args": null,
+   "next": "explore_action",
+   "on_true": null,
+   "on_false": null,
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "explore_action",
+   "kind": "check",
+   "pred": "next_direction is not None",
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": null,
+   "args": null,
+   "next": null,
+   "on_true": "use_exit_explore",
+   "on_false": "finish",
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "use_exit_explore",
+   "kind": "skill",
+   "pred": null,
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": "use_exit",
+   "args": {
+    "target": null,
+    "direction": "next_direction"
+   },
+   "next": null,
+   "on_true": null,
+   "on_false": null,
+   "on_success": "start",
+   "on_fail": "explore_unexplored",
+   "success": null
+  },
+  {
+   "name": "finish",
+   "kind": "terminal",
+   "pred": null,
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": null,
+   "args": null,
+   "next": null,
+   "on_true": null,
+   "on_false": null,
+   "on_success": null,
+   "on_fail": null,
+   "success": true
+  }
+ ]
+}

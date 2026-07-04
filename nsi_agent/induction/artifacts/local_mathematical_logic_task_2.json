@@ -1,0 +1,127 @@
+{
+ "name": "mathematical_logic_task_2",
+ "entry": "check_chest_needed",
+ "reactive": [
+  {
+   "pred": "threatened()",
+   "skill": "kill_monster",
+   "args": {
+    "target": null,
+    "direction": null
+   }
+  }
+ ],
+ "nodes": [
+  {
+   "name": "check_chest_needed",
+   "kind": "check",
+   "pred": "inv.keys == 0",
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": null,
+   "args": null,
+   "next": null,
+   "on_true": "locate_chest",
+   "on_false": "check_exit_conditions",
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "locate_chest",
+   "kind": "data",
+   "pred": null,
+   "bind_name": "chest_target",
+   "bind_expr": "nearest(closed_chests())",
+   "skill": null,
+   "args": null,
+   "next": "check_chest_reachable",
+   "on_true": null,
+   "on_false": null,
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "check_chest_reachable",
+   "kind": "check",
+   "pred": "reachable(chest_target)",
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": null,
+   "args": null,
+   "next": null,
+   "on_true": "open_chest_action",
+   "on_false": "check_exit_conditions",
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "open_chest_action",
+   "kind": "skill",
+   "pred": null,
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": "open_chest",
+   "args": {
+    "target": "chest_target",
+    "direction": null
+   },
+   "next": null,
+   "on_true": "check_chest_needed",
+   "on_false": "check_exit_conditions",
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "check_exit_conditions",
+   "kind": "check",
+   "pred": "exit_state('west') == 'conditional'",
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": null,
+   "args": null,
+   "next": null,
+   "on_true": "use_exit_action",
+   "on_false": "finished",
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "use_exit_action",
+   "kind": "skill",
+   "pred": null,
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": "use_exit",
+   "args": {
+    "target": null,
+    "direction": "'west'"
+   },
+   "next": null,
+   "on_true": "finished",
+   "on_false": "finished",
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "finished",
+   "kind": "terminal",
+   "pred": null,
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": null,
+   "args": null,
+   "next": null,
+   "on_true": null,
+   "on_false": null,
+   "on_success": null,
+   "on_fail": null,
+   "success": true
+  }
+ ]
+}

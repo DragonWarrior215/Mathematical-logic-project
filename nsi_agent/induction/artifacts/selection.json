@@ -1,0 +1,22 @@
+{
+ "mathematical_logic/task_1": {
+  "planner": "local",
+  "artifact": "mathematical_logic_task_1.json"
+ },
+ "mathematical_logic/task_2": {
+  "planner": "local",
+  "artifact": "mathematical_logic_task_2.json"
+ },
+ "mathematical_logic/task_3": {
+  "planner": "local",
+  "artifact": "mathematical_logic_task_3.json"
+ },
+ "mathematical_logic/task_4": {
+  "planner": "local",
+  "artifact": "mathematical_logic_task_4.json"
+ },
+ "mathematical_logic/task_5": {
+  "planner": "fallback",
+  "artifact": null
+ }
+}

@@ -1,0 +1,343 @@
+{
+ "name": "mathematical_logic_task_5",
+ "entry": "check_threatened",
+ "reactive": [
+  {
+   "pred": "threatened()",
+   "skill": "kill_monster",
+   "args": {
+    "target": null,
+    "direction": null
+   }
+  }
+ ],
+ "nodes": [
+  {
+   "name": "check_threatened",
+   "kind": "check",
+   "pred": "threatened()",
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": null,
+   "args": null,
+   "next": null,
+   "on_true": "combat_monster",
+   "on_false": "check_closed_chests_first_room_0_0",
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "combat_monster",
+   "kind": "skill",
+   "pred": null,
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": "kill_monster",
+   "args": {
+    "target": null,
+    "direction": null
+   },
+   "next": null,
+   "on_true": "check_closed_chests_first_room_0_0",
+   "on_false": "terminal_fail",
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "check_closed_chests_first_room_0_0",
+   "kind": "check",
+   "pred": "nearest(closed_chests()) is not None",
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": null,
+   "args": null,
+   "next": null,
+   "on_true": "open_nearest_chest",
+   "on_false": "check_buttons_first_room_0_0",
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "open_nearest_chest",
+   "kind": "skill",
+   "pred": null,
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": "open_chest",
+   "args": {
+    "target": "nearest(closed_chests())",
+    "direction": null
+   },
+   "next": null,
+   "on_true": "check_closed_chests_first_room_0_0",
+   "on_false": "terminal_fail",
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "check_buttons_first_room_0_0",
+   "kind": "check",
+   "pred": "nearest(buttons()) is not None",
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": null,
+   "args": null,
+   "next": null,
+   "on_true": "press_nearest_button",
+   "on_false": "check_exit_south_first_room_0_0",
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "press_nearest_button",
+   "kind": "skill",
+   "pred": null,
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": "press_button",
+   "args": {
+    "target": "nearest(buttons())",
+    "direction": null
+   },
+   "next": null,
+   "on_true": "check_buttons_first_room_0_0",
+   "on_false": "terminal_fail",
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "check_exit_south_first_room_0_0",
+   "kind": "check",
+   "pred": "exit_state('south') == 'conditional'",
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": null,
+   "args": null,
+   "next": null,
+   "on_true": "use_exit_south_first_room_0_0",
+   "on_false": "check_exit_east_first_room_0_0",
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "use_exit_south_first_room_0_0",
+   "kind": "skill",
+   "pred": null,
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": "use_exit",
+   "args": {
+    "target": null,
+    "direction": "'south'"
+   },
+   "next": null,
+   "on_true": "check_closed_chests_second_room_0_1",
+   "on_false": "terminal_fail",
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "check_closed_chests_second_room_0_1",
+   "kind": "check",
+   "pred": "nearest(closed_chests()) is not None",
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": null,
+   "args": null,
+   "next": null,
+   "on_true": "open_nearest_chest_second_room_0_1",
+   "on_false": "check_exit_north_second_room_0_1",
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "open_nearest_chest_second_room_0_1",
+   "kind": "skill",
+   "pred": null,
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": "open_chest",
+   "args": {
+    "target": "nearest(closed_chests())",
+    "direction": null
+   },
+   "next": null,
+   "on_true": "check_closed_chests_second_room_0_1",
+   "on_false": "terminal_fail",
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "check_exit_north_second_room_0_1",
+   "kind": "check",
+   "pred": "exit_state('north') == 'conditional'",
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": null,
+   "args": null,
+   "next": null,
+   "on_true": "use_exit_north_second_room_0_1",
+   "on_false": "terminal_success",
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "use_exit_north_second_room_0_1",
+   "kind": "skill",
+   "pred": null,
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": "use_exit",
+   "args": {
+    "target": null,
+    "direction": "'north'"
+   },
+   "next": null,
+   "on_true": "check_closed_chests_first_room_0_0",
+   "on_false": "terminal_fail",
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "check_exit_east_first_room_0_0",
+   "kind": "check",
+   "pred": "exit_state('east') == 'locked'",
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": null,
+   "args": null,
+   "next": null,
+   "on_true": "use_exit_east_first_room_0_0",
+   "on_false": "terminal_success",
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "use_exit_east_first_room_0_0",
+   "kind": "skill",
+   "pred": null,
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": "use_exit",
+   "args": {
+    "target": null,
+    "direction": "'east'"
+   },
+   "next": null,
+   "on_true": "check_closed_chests_third_room_1_0",
+   "on_false": "terminal_fail",
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "check_closed_chests_third_room_1_0",
+   "kind": "check",
+   "pred": "nearest(closed_chests()) is not None",
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": null,
+   "args": null,
+   "next": null,
+   "on_true": "open_nearest_chest_third_room_1_0",
+   "on_false": "check_exit_west_third_room_1_0",
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "open_nearest_chest_third_room_1_0",
+   "kind": "skill",
+   "pred": null,
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": "open_chest",
+   "args": {
+    "target": "nearest(closed_chests())",
+    "direction": null
+   },
+   "next": null,
+   "on_true": "check_closed_chests_third_room_1_0",
+   "on_false": "terminal_fail",
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "check_exit_west_third_room_1_0",
+   "kind": "check",
+   "pred": "exit_state('west') == 'normal'",
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": null,
+   "args": null,
+   "next": null,
+   "on_true": "use_exit_west_third_room_1_0",
+   "on_false": "terminal_success",
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "use_exit_west_third_room_1_0",
+   "kind": "skill",
+   "pred": null,
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": "use_exit",
+   "args": {
+    "target": null,
+    "direction": "'west'"
+   },
+   "next": null,
+   "on_true": "check_closed_chests_first_room_0_0",
+   "on_false": "terminal_fail",
+   "on_success": null,
+   "on_fail": null,
+   "success": null
+  },
+  {
+   "name": "terminal_success",
+   "kind": "terminal",
+   "pred": null,
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": null,
+   "args": null,
+   "next": null,
+   "on_true": null,
+   "on_false": null,
+   "on_success": null,
+   "on_fail": null,
+   "success": true
+  },
+  {
+   "name": "terminal_fail",
+   "kind": "terminal",
+   "pred": null,
+   "bind_name": null,
+   "bind_expr": null,
+   "skill": null,
+   "args": null,
+   "next": null,
+   "on_true": null,
+   "on_false": null,
+   "on_success": null,
+   "on_fail": null,
+   "success": false
+  }
+ ]
+}
