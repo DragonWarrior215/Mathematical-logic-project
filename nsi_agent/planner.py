@@ -91,7 +91,6 @@ class FallbackPlanner:
     task5_phase: str = T5_NEED_KEY
     task5_ever_had_key: bool = False
     task5_unlocked: bool = False
-    task5_key_source_room: Coord | None = None
 
     # ------------------------------------------------------------------
 
@@ -108,7 +107,6 @@ class FallbackPlanner:
         self.task5_phase = T5_NEED_KEY
         self.task5_ever_had_key = False
         self.task5_unlocked = False
-        self.task5_key_source_room = None
 
     def step(self, ctx: Ctx) -> int:
         self.stale_rooms.discard(ctx.memory.current_coord)
@@ -117,8 +115,6 @@ class FallbackPlanner:
         # deserve another try (probe goal keys embed the key count too).
         keys = ctx.inventory.keys
         if keys > getattr(self, "_last_keys", 0):
-            if self._task5(ctx):
-                self.task5_key_source_room = ctx.memory.current_coord
             for room in ctx.memory.rooms.values():
                 room.probed_dirs.clear()
         self._last_keys = keys
@@ -411,7 +407,7 @@ class FallbackPlanner:
             if goal is not None:
                 return goal
 
-        if ctx.inventory.keys > 0 and self.task5_key_source_room != (0, 1):
+        if ctx.inventory.keys > 0:
             goal = self._task5_global_goal(ctx, here)
             if goal is not None:
                 return goal
@@ -437,7 +433,9 @@ class FallbackPlanner:
             return self._route_goal(ctx, here)
 
         max_rank = None
-        if self.task5_phase == T5_NEED_KEY and coord != (0, 0):
+        if self.task5_phase == T5_NEED_KEY:
+            # Low-value chests (gold) are cleanup work: opening them before
+            # the key burns the HP/time budget that variant maps make tight.
             max_rank = 3
         chest = self._best_reachable_chest(ctx, here, max_rank=max_rank)
         if chest is not None:
@@ -459,9 +457,11 @@ class FallbackPlanner:
 
         # Holding a key is an expensive temporary capability in task 5: using
         # it on the east lock should outrank optional gold/button cleanup.
+        door_tiles: tuple[tuple[int, int], ...] | None = None
         for direction, exit_state in state.exits.items():
             if exit_state != "locked" or ctx.inventory.keys <= 0:
                 continue
+            door_tiles = EXIT_TILES[direction]
             key = ("locked_exit", coord, direction, ctx.inventory.keys)
             if not self._cooled(ctx, key):
                 continue
@@ -481,6 +481,16 @@ class FallbackPlanner:
             if path is None:
                 continue
             score = self._task5_chest_score(ctx, state.tile(*chest)) + len(path)
+            if door_tiles is not None:
+                # Completion needs every chest opened eventually; a chest
+                # sitting (almost) on the way to the locked door is nearly
+                # free now (<=3 tiles of detour) but costs a dedicated
+                # return trip later.
+                approach = path[-1] if path else here
+                d_direct = min(_manhattan(here, t) for t in door_tiles)
+                d_via = len(path) + min(_manhattan(approach, t) for t in door_tiles)
+                if d_via - d_direct <= 4:
+                    score = min(score, -520 + (d_via - d_direct))
             candidates.append((score, Goal(
                 key, "open_chest", {"target": chest}
             )))
@@ -643,15 +653,9 @@ class FallbackPlanner:
         return self._route_goal(ctx, here)
 
     def _heal_has_been_collected(self, ctx: Ctx) -> bool:
-        for room in ctx.memory.rooms.values():
-            state = room.state
-            if state is None:
-                continue
-            if room.coord == (1, 0) and state.tiles_of(schema.TILE_CHEST_OPEN):
-                return True
-            if not state.tiles_of(schema.TILE_CHEST_HEAL) and room.coord == (1, 0):
-                return True
-        return False
+        # Reward feedback marks heal pickups exactly (map-agnostic); the
+        # room-coordinate heuristic it replaces broke on shifted layouts.
+        return ctx.memory.heal_events > 0
 
     def _pre_unlock_cleanup_goal(self, ctx: Ctx, coord: Coord) -> Goal | None:
         state = ctx.state
@@ -806,6 +810,7 @@ class FallbackPlanner:
         here: tuple[int, int],
         *,
         max_rank: int | None = None,
+        max_path: int | None = None,
     ):
         state = ctx.state
         best, best_score = None, None
@@ -819,6 +824,8 @@ class FallbackPlanner:
             goals = {t for t in _adjacent(chest) if walkable(ctx, t)}
             path = bfs_path(ctx, here, goals, avoid_monsters=False)
             if path is None:
+                continue
+            if max_path is not None and len(path) > max_path:
                 continue
             score = 10 * rank + len(path)
             if best_score is None or score < best_score:
@@ -1132,6 +1139,10 @@ def _adjacent(tile: tuple[int, int]):
         t for t in ((x, y - 1), (x, y + 1), (x - 1, y), (x + 1, y))
         if 0 <= t[0] < GRID_W and 0 <= t[1] < GRID_H
     ]
+
+
+def _manhattan(a: tuple[int, int], b: tuple[int, int]) -> int:
+    return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
 
 def _shift(coord: Coord, direction: str) -> Coord:
