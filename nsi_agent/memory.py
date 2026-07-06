@@ -77,6 +77,8 @@ class Memory:
         self.hp_estimate: float = PLAYER_MAX_HP
         self.step_count: int = 0
         self.task_id: str | None = None
+        self.heal_events: int = 0
+        self._hp_signal_tracked = False
 
     # -- room bookkeeping ------------------------------------------------
 
@@ -135,8 +137,27 @@ class Memory:
     def on_step(self, info: dict[str, Any]) -> None:
         self.step_count += 1
         self.inventory = InventoryView.from_info(info)
-        if self.task_id == "mathematical_logic/task_5" and self.step_count % 200 == 0:
-            self.hp_estimate -= 1.0  # hidden periodic drain observed in training
+        # HP bookkeeping from reward feedback (allowed as historical signal,
+        # same precedent as the wall-bump detector): hp_loss covers both
+        # monster hits and the task_5 periodic drain; agent_healed marks
+        # heal pickups (+1 HP per event on the training maps).
+        reward = info.get("reward", {}) if isinstance(info, dict) else {}
+        signals = reward.get("reward_signals") or {}
+        weights = reward.get("reward_weights") or {}
+        loss = signals.get("hp_loss")
+        if isinstance(loss, (int, float)) and weights.get("hp_loss"):
+            self._hp_signal_tracked = True
+            if loss > 0:
+                self.note_damage(float(loss))
+        healed = signals.get("agent_healed")
+        if isinstance(healed, (int, float)) and healed > 0 \
+                and weights.get("agent_healed"):
+            self.heal_events += int(healed)
+            self.note_heal(float(healed))
+        if not self._hp_signal_tracked \
+                and self.task_id == "mathematical_logic/task_5" \
+                and self.step_count % 200 == 0:
+            self.hp_estimate -= 1.0  # drain model fallback without signals
 
     def note_damage(self, amount: float = 1.0) -> None:
         self.hp_estimate = max(0.0, self.hp_estimate - amount)
@@ -151,3 +172,5 @@ class Memory:
         self.hp_estimate = PLAYER_MAX_HP
         self.step_count = 0
         self.task_id = task_id
+        self.heal_events = 0
+        self._hp_signal_tracked = False
