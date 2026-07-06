@@ -47,8 +47,9 @@ Output the full corrected program.
 """
 
 
-def run_live(task_id: str, spec: dict | None, seed: int = 0) -> dict:
-    env = make_env(task_id=task_id, observation_mode="pixels")
+def run_live(task_id: str, spec: dict | None, seed: int = 0,
+             map_path: Path | None = None) -> dict:
+    env = make_env(task_id=task_id, observation_mode="pixels", map_path=map_path)
     policy = Policy(backend=OracleGrounding(env), prefer_induced=False)
     policy.reset(seed=seed, task_id=task_id)
     if spec is not None:
@@ -82,10 +83,11 @@ def run_live(task_id: str, spec: dict | None, seed: int = 0) -> dict:
     }
 
 
-def reflect_once(task_id: str, traces_dir: Path, *, seed: int = 0) -> bool:
+def reflect_once(task_id: str, traces_dir: Path, *, seed: int = 0,
+                 map_path: Path | None = None) -> bool:
     path = artifact_path(task_id)
     spec = json.loads(path.read_text("utf-8"))
-    outcome = run_live(task_id, spec, seed=seed)
+    outcome = run_live(task_id, spec, seed=seed, map_path=map_path)
     print(f"live run on {task_id}: {outcome['success']} "
           f"({outcome['terminal_reason']})")
     if outcome["success"]:
@@ -113,10 +115,20 @@ def reflect_once(task_id: str, traces_dir: Path, *, seed: int = 0) -> bool:
         if value < baseline - 25:
             prompt += "\n\nRejected: the patch broke demonstration consistency."
             continue
-        retry = run_live(task_id, candidate, seed=seed)
+        retry = run_live(task_id, candidate, seed=seed, map_path=map_path)
         print(f"  patched attempt {attempt}: live={retry['success']} "
               f"consistency {value:.1f} (baseline {baseline:.1f})")
         if retry["success"]:
+            if map_path is not None:
+                # Variant-driven evolution must not regress the canonical
+                # task: re-validate the patch on the base map too.
+                base = run_live(task_id, candidate, seed=seed)
+                if not base["success"]:
+                    prompt += (
+                        "\n\nRejected: the patch passed the variant but broke "
+                        f"the base task ({base['terminal_reason']})."
+                    )
+                    continue
             save_artifact(candidate, path.stem)
             print(f"  grafted recovery branch into {path}")
             return True
@@ -133,8 +145,11 @@ def main() -> None:
     parser.add_argument("--traces", type=Path,
                         default=Path(__file__).resolve().parent / "traces")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--map-path", type=Path, default=None,
+                        help="Optional variant map: evolve against this map "
+                             "while keeping base-task and trace consistency.")
     args = parser.parse_args()
-    reflect_once(args.task, args.traces, seed=args.seed)
+    reflect_once(args.task, args.traces, seed=args.seed, map_path=args.map_path)
 
 
 if __name__ == "__main__":

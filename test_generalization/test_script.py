@@ -21,7 +21,7 @@ from typing import Any, Callable
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MAP_ROOT = PROJECT_ROOT / "nesylink" / "map_data" / "mathematical_logic"
-DEFAULT_OUT = PROJECT_ROOT.parents[2] / "outputs" / "generalization_eval"
+DEFAULT_OUT = PROJECT_ROOT / "outputs" / "generalization_eval"
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
