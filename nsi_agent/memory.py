@@ -29,6 +29,7 @@ class RoomMemory:
     visited_exits: set[str] = field(default_factory=set)   # directions we used
     probed_dirs: set[str] = field(default_factory=set)     # blind probes tried
     failed_exits: dict[str, int] = field(default_factory=dict)  # dir -> fail count
+    opened_exits: set[str] = field(default_factory=set)    # locks consumed (engine-confirmed)
     opened_chests: set[Tile] = field(default_factory=set)
     talked_npcs: set[Tile] = field(default_factory=set)
     switch_toggles: int = 0
