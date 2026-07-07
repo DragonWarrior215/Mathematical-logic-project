@@ -197,6 +197,14 @@ class FallbackPlanner:
 
     def _on_success(self, ctx: Ctx, goal: Goal) -> None:
         self._mark_probed(ctx, goal)
+        if goal.key[0] == "locked_exit":
+            # The engine authoritatively confirmed this lock is consumed.
+            # Perception may keep misreading the opened door as locked or
+            # conditional — behavioral feedback outranks pixels.
+            _, coord, direction = goal.key[0], goal.key[1], goal.key[2]
+            room = ctx.memory.rooms.get(tuple(coord))
+            if room is not None:
+                room.opened_exits.add(direction)
         if goal.skill == "kill_monster":
             # Kills can reveal hidden chests anywhere — schedule
             # re-perception of known rooms.
@@ -756,7 +764,8 @@ class FallbackPlanner:
         # Holding a key is an expensive temporary capability in task 5: using
         # it on the east lock should outrank optional gold/button cleanup.
         for direction, exit_state in state.exits.items():
-            if exit_state != "locked" or ctx.inventory.keys <= 0:
+            if exit_state != "locked" or ctx.inventory.keys <= 0 \
+                    or direction in ctx.memory.room.opened_exits:
                 continue
             key = ("locked_exit", coord, direction, ctx.inventory.keys)
             if not self._cooled(ctx, key):
@@ -902,7 +911,10 @@ class FallbackPlanner:
             score = min(score, 20)
         if self.task5_phase == T5_NEED_HEAL and state.tiles_of(schema.TILE_CHEST_HEAL):
             score = min(score, -240)
-        if ctx.inventory.keys > 0 and "locked" in state.exits.values():
+        if ctx.inventory.keys > 0 and any(
+            exit_state == "locked" and direction not in room.opened_exits
+            for direction, exit_state in state.exits.items()
+        ):
             score = min(score, -220)
         for chest in state.closed_chests():
             score = min(score, self._task5_chest_score(ctx, state.tile(*chest)))
@@ -1024,14 +1036,15 @@ class FallbackPlanner:
         state = ctx.state
         if state is None or ctx.inventory.keys <= 0:
             return None
+        opened = ctx.memory.room.opened_exits
         for direction in self._dir_order():
-            if state.exits.get(direction) != "locked":
+            if state.exits.get(direction) != "locked" or direction in opened:
                 continue
             key = ("locked_exit", coord, direction, ctx.inventory.keys)
             if self._cooled(ctx, key):
                 return Goal(key, "use_exit", {"direction": direction})
         for direction, exit_state in state.exits.items():
-            if exit_state != "locked":
+            if exit_state != "locked" or direction in opened:
                 continue
             key = ("locked_exit", coord, direction, ctx.inventory.keys)
             if self._cooled(ctx, key):
@@ -1063,8 +1076,9 @@ class FallbackPlanner:
         state = ctx.state
         if state is None:
             return None
+        opened = ctx.memory.room.opened_exits
         for direction in self._dir_order():
-            if state.exits.get(direction) != "conditional":
+            if state.exits.get(direction) != "conditional" or direction in opened:
                 continue
             target = _shift(coord, direction)
             if self._task5(ctx) and target in ctx.memory.rooms \
@@ -1080,7 +1094,7 @@ class FallbackPlanner:
                 self.tried_conditional.add(signature)
                 return Goal(signature, "use_exit", {"direction": direction})
         for direction, exit_state in state.exits.items():
-            if exit_state != "conditional":
+            if exit_state != "conditional" or direction in opened:
                 continue
             target = _shift(coord, direction)
             if self._task5(ctx) and target in ctx.memory.rooms \
@@ -1147,7 +1161,8 @@ class FallbackPlanner:
         if state.tiles_of(schema.TILE_BUTTON):
             return True
         for direction, exit_state in state.exits.items():
-            if exit_state == "locked" and ctx.inventory.keys > 0:
+            if exit_state == "locked" and ctx.inventory.keys > 0 \
+                    and direction not in room.opened_exits:
                 return True
             if direction not in room.visited_exits and exit_state != "-":
                 target = _shift(coord, direction)
@@ -1255,7 +1270,8 @@ class FallbackPlanner:
             target = _shift(coord, direction)
             if target not in ctx.memory.rooms or target in self.stale_rooms:
                 return True
-            if exit_state == "locked" and ctx.inventory.keys > 0:
+            if exit_state == "locked" and ctx.inventory.keys > 0 \
+                    and direction not in ctx.memory.room.opened_exits:
                 return True
             return self._pending_in_room(ctx, target)
 
@@ -1292,7 +1308,8 @@ class FallbackPlanner:
             stale = target in self.stale_rooms
             if not (unexplored or stale):
                 continue
-            if exit_state == "locked" and ctx.inventory.keys == 0:
+            if exit_state == "locked" and ctx.inventory.keys == 0 \
+                    and direction not in room.opened_exits:
                 continue
             key = ("frontier", coord, direction, ctx.inventory.keys)
             if self._cooled(ctx, key):
@@ -1344,6 +1361,8 @@ class FallbackPlanner:
         if exit_state == "-":
             return 1000
         if exit_state == "locked":
+            if room is not None and direction in room.opened_exits:
+                return 5    # engine-confirmed open; perception misreads
             return -100 if ctx.inventory.keys > 0 else 950
 
         target = _shift(coord, direction)
@@ -1370,7 +1389,10 @@ class FallbackPlanner:
         score = 80
         if coord in self.stale_rooms:
             score = min(score, 15)
-        if ctx.inventory.keys > 0 and "locked" in state.exits.values():
+        if ctx.inventory.keys > 0 and any(
+            exit_state == "locked" and direction not in room.opened_exits
+            for direction, exit_state in state.exits.items()
+        ):
             score = min(score, 0)
         for chest in state.closed_chests():
             score = min(score, 10 + 10 * self._chest_value_rank(ctx, state.tile(*chest)))
