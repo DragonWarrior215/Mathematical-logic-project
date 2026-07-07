@@ -299,12 +299,14 @@ class OpenChest:
     _nav: GoToTile = field(default_factory=GoToTile)
     _presses: int = 0
     _steps: int = 0
+    _last_closed_cls: str | None = None
 
     def reset(self, ctx: Ctx, *, target: Tile) -> None:
         self.target = (int(target[0]), int(target[1]))
         self._nav.reset(ctx, target=self.target, adjacent=True)
         self._presses = 0
         self._steps = 0
+        self._last_closed_cls = None
 
     def step(self, ctx: Ctx) -> StepResult:
         self._steps += 1
@@ -317,9 +319,12 @@ class OpenChest:
         cls = state.tile(*self.target)
         if cls == schema.TILE_CHEST_OPEN:
             ctx.memory.room.opened_chests.add(self.target)
+            if self._last_closed_cls == schema.TILE_CHEST_HEAL:
+                ctx.memory.note_heal()
             return ("ok", self.target)
         if cls not in schema.CLOSED_CHEST_TILES:
             return ("fail", ("not_a_chest", self.target, cls))
+        self._last_closed_cls = cls
 
         here = ctx.tracker.player_tile()
         if abs(here[0] - self.target[0]) + abs(here[1] - self.target[1]) == 1:
@@ -477,6 +482,11 @@ class UseExit:
         if here in exit_tiles:
             # Align exactly, then push outward; the engine requires the rect
             # flush against the boundary on an exit tile.
+            if self._pushes == 0 and self._at_exit_boundary(ctx):
+                self._pushes += 1
+                ctx.tracker.expect_transition = self.direction
+                ctx.tracker.request_perceive()
+                return ("act", ACTION_B if ctx.inventory.has_shield else ACTION_NOOP)
             px, py = ctx.tracker.player_px
             tx, ty = here[0] * TILE_SIZE, here[1] * TILE_SIZE
             if (px, py) != (tx, ty):
@@ -488,19 +498,37 @@ class UseExit:
             return ("act", DIR_TO_MOVE_ACTION[_exit_push_dir(self.direction)])
 
         if self._nav is None:
-            self._nav = GoToTile()
-            self._nav.reset(ctx, target=exit_tiles[0], align=True)
-            if len(exit_tiles) > 1:
-                # Prefer the reachable one.
-                path = bfs_path(ctx, here, {exit_tiles[0]})
+            best_target = exit_tiles[0]
+            best_path = None
+            for tile in exit_tiles:
+                path = bfs_path(ctx, here, {tile})
                 if path is None:
-                    self._nav.reset(ctx, target=exit_tiles[1], align=True)
+                    continue
+                if best_path is None or len(path) < len(best_path):
+                    best_target = tile
+                    best_path = path
+            self._nav = GoToTile()
+            self._nav.reset(ctx, target=best_target, align=True)
         kind, payload = self._nav.step(ctx)
         if kind == "fail":
             return ("fail", ("exit_unreachable", self.direction, payload))
         if kind == "ok":
             return ("act", ACTION_NOOP)
         return (kind, payload)
+
+    def _at_exit_boundary(self, ctx: Ctx) -> bool:
+        px, py = ctx.tracker.player_px
+        max_x = (GRID_W - 1) * TILE_SIZE
+        max_y = (GRID_H - 1) * TILE_SIZE
+        if self.direction == "north":
+            return py <= 0
+        if self.direction == "south":
+            return py >= max_y
+        if self.direction == "west":
+            return px <= 0
+        if self.direction == "east":
+            return px >= max_x
+        return False
 
 
 def _exit_push_dir(direction: str) -> str:
