@@ -2,37 +2,37 @@ import NesyFormalization.MonsterDanger
 
 namespace EnvFormalization
 
-/-- A path chain requires each consecutive pair of tiles to be strict neighbors. -/
+/-- 路径链要求每一对连续格子都是严格邻居。 -/
 def PathChain : List Position → Prop
   | [] => True
   | [_] => True
   | p :: q :: rest => Neighbor p q ∧ PathChain (q :: rest)
 
-/-- Every tile in the path must satisfy strict walkability in the room. -/
+/-- 路径中的每个格子都必须在房间中满足严格可行走性。 -/
 def PathWalkable (r : RoomState) (path : List Position) : Prop :=
   ∀ p, p ∈ path → walkable r p
 
-/-- A path starts at `start` and ends at `goal`. -/
+/-- 路径从 `start` 开始并在 `goal` 结束。 -/
 def PathEndpoints (path : List Position) (start goal : Position) : Prop :=
   path.head? = some start ∧ path.getLast? = some goal
 
-/-- A valid path has correct endpoints, only uses walkable tiles, and moves by strict neighbors. -/
+/-- 有效路径具有正确端点，只使用可行走格子，并按严格邻居关系移动。 -/
 def ValidPath (r : RoomState) (start goal : Position) (path : List Position) : Prop :=
   PathEndpoints path start goal ∧ PathWalkable r path ∧ PathChain path
 
-/-- Reachability means there exists a valid path between the two tiles. -/
+/-- 可达性表示两个格子之间存在一条有效路径。 -/
 def Reachable (r : RoomState) (start goal : Position) : Prop :=
   ∃ path, ValidPath r start goal path
 
-/-- BFS soundness: any returned path is a valid path in the room. -/
+/-- BFS 可靠性：任意返回路径都是房间中的有效路径。 -/
 def BfsSound (bfs : RoomState → Position → Position → Option (List Position)) : Prop :=
   ∀ r start goal path, bfs r start goal = some path → ValidPath r start goal path
 
-/-- BFS no-dup property: any returned path has no repeated tiles. -/
+/-- BFS 无重复性质：任意返回路径都不包含重复格子。 -/
 def BfsNoDup (bfs : RoomState → Position → Position → Option (List Position)) : Prop :=
   ∀ r start goal path, bfs r start goal = some path → path.Nodup
 
-/-- BFS monster-avoidance property: returned path tiles are safe for the tracker state. -/
+/-- BFS 避怪性质：返回路径上的格子对跟踪器状态是安全的。 -/
 def BfsAvoidsMonsters
     (bfs : RoomState → Position → Position → Option (List Position))
     (trackedOf : RoomState → List TrackedMonster) : Prop :=
@@ -41,26 +41,26 @@ def BfsAvoidsMonsters
     p ∈ path →
     positionSafe (trackedOf r) p
 
-/-- BFS shortestness: the returned path is no longer than any other valid path. -/
+/-- BFS 最短性：返回路径不长于任何其他有效路径。 -/
 def BfsShortest (bfs : RoomState → Position → Position → Option (List Position)) : Prop :=
   ∀ r start goal path alt,
     bfs r start goal = some path →
     ValidPath r start goal alt →
     path.length ≤ alt.length
 
-/-- BFS completeness: whenever the goal is reachable, BFS can return some path. -/
+/-- BFS 完备性：只要目标可达，BFS 就能返回某条路径。 -/
 def BfsComplete (bfs : RoomState → Position → Position → Option (List Position)) : Prop :=
   ∀ r start goal, Reachable r start goal → ∃ path, bfs r start goal = some path
 
-/-- Soundness of `reachable_tiles`: every reported tile is genuinely reachable. -/
+/-- `reachable_tiles` 的可靠性：每个报告出的格子都确实可达。 -/
 def ReachableTilesSound (reachableTiles : RoomState → Position → List Position) : Prop :=
   ∀ r start p, p ∈ reachableTiles r start → Reachable r start p
 
-/-- Completeness of `reachable_tiles`: every genuinely reachable tile is reported. -/
+/-- `reachable_tiles` 的完备性：每个确实可达的格子都会被报告。 -/
 def ReachableTilesComplete (reachableTiles : RoomState → Position → List Position) : Prop :=
   ∀ r start p, Reachable r start p → p ∈ reachableTiles r start
 
-/-- `bfs_path_adjacent`: consecutive tiles in a returned BFS path are strict neighbors. -/
+/-- `bfs_path_adjacent`：返回的 BFS 路径中，连续格子都是严格邻居。 -/
 theorem bfs_path_adjacent
     {bfs : RoomState → Position → Position → Option (List Position)}
     (hsound : BfsSound bfs)
@@ -69,7 +69,7 @@ theorem bfs_path_adjacent
     PathChain path := by
   exact (hsound r start goal path hfind).2.2
 
-/-- `bfs_path_nodup`: a returned BFS path contains no repeated tiles. -/
+/-- `bfs_path_nodup`：返回的 BFS 路径不包含重复格子。 -/
 theorem bfs_path_nodup
     {bfs : RoomState → Position → Position → Option (List Position)}
     (hnodup : BfsNoDup bfs)
@@ -78,7 +78,7 @@ theorem bfs_path_nodup
     path.Nodup := by
   exact hnodup r start goal path hfind
 
-/-- `bfs_path_in_bounds`: every tile in a returned BFS path is inside room bounds. -/
+/-- `bfs_path_in_bounds`：返回的 BFS 路径中每个格子都位于房间边界内。 -/
 theorem bfs_path_in_bounds
     {bfs : RoomState → Position → Position → Option (List Position)}
     (hsound : BfsSound bfs)
@@ -88,7 +88,7 @@ theorem bfs_path_in_bounds
   intro p hp
   exact walkable_in_bounds ((hsound r start goal path hfind).2.1 p hp)
 
-/-- `bfs_path_not_blocking`: a returned BFS path never goes through a blocking tile. -/
+/-- `bfs_path_not_blocking`：返回的 BFS 路径不会经过阻挡格子。 -/
 theorem bfs_path_not_blocking
     {bfs : RoomState → Position → Position → Option (List Position)}
     (hsound : BfsSound bfs)
@@ -98,7 +98,7 @@ theorem bfs_path_not_blocking
   intro p hp
   exact walkable_not_blocking ((hsound r start goal path hfind).2.1 p hp)
 
-/-- `bfs_path_avoids_hazard`: a strict BFS path avoids active hazards and monster tiles. -/
+/-- `bfs_path_avoids_hazard`：严格 BFS 路径会避开激活的危险和怪物格子。 -/
 theorem bfs_path_avoids_hazard
     {bfs : RoomState → Position → Position → Option (List Position)}
     (hsound : BfsSound bfs)
@@ -108,7 +108,7 @@ theorem bfs_path_avoids_hazard
   intro p hp
   exact walkable_not_hazard ((hsound r start goal path hfind).2.1 p hp)
 
-/-- `bfs_internal_avoids_monsters`: under the avoidance spec, returned path tiles avoid monster danger. -/
+/-- `bfs_internal_avoids_monsters`：在避让规格下，返回路径上的格子会避开怪物危险。 -/
 theorem bfs_internal_avoids_monsters
     {bfs : RoomState → Position → Position → Option (List Position)}
     {trackedOf : RoomState → List TrackedMonster}
@@ -119,7 +119,7 @@ theorem bfs_internal_avoids_monsters
     positionSafe (trackedOf r) p := by
   exact havoid r start goal path p hfind hmem
 
-/-- `bfs_shortest`: an implementation satisfying shortestness returns a shortest valid path. -/
+/-- `bfs_shortest`：满足最短性规格的实现会返回一条最短有效路径。 -/
 theorem bfs_shortest
     {bfs : RoomState → Position → Position → Option (List Position)}
     (hshort : BfsShortest bfs)
@@ -129,7 +129,7 @@ theorem bfs_shortest
     path.length ≤ alt.length := by
   exact hshort r start goal path alt hfind halt
 
-/-- `bfs_complete`: an implementation satisfying completeness finds a path when one exists. -/
+/-- `bfs_complete`：满足完备性规格的实现会在路径存在时找到路径。 -/
 theorem bfs_complete
     {bfs : RoomState → Position → Position → Option (List Position)}
     (hcomplete : BfsComplete bfs)
@@ -138,7 +138,7 @@ theorem bfs_complete
     ∃ path, bfs r start goal = some path := by
   exact hcomplete r start goal hreach
 
-/-- `bfs_none_iff_unreachable`: sound and complete BFS returns none exactly for unreachable goals. -/
+/-- `bfs_none_iff_unreachable`：可靠且完备的 BFS 恰好在目标不可达时返回 none。 -/
 theorem bfs_none_iff_unreachable
     {bfs : RoomState → Position → Position → Option (List Position)}
     (hsound : BfsSound bfs)
@@ -156,7 +156,7 @@ theorem bfs_none_iff_unreachable
     | some path =>
         exact False.elim (hunreach ⟨path, hsound r start goal path hfind⟩)
 
-/-- `reachable_tiles_sound`: every tile returned by reachable-tile enumeration is reachable. -/
+/-- `reachable_tiles_sound`：可达格子枚举返回的每个格子都是可达的。 -/
 theorem reachable_tiles_sound
     {reachableTiles : RoomState → Position → List Position}
     (hsound : ReachableTilesSound reachableTiles)
@@ -165,7 +165,7 @@ theorem reachable_tiles_sound
     Reachable r start p := by
   exact hsound r start p hmem
 
-/-- `reachable_tiles_complete`: every reachable tile appears in a complete reachable-tile enumeration. -/
+/-- `reachable_tiles_complete`：每个可达格子都出现在完备的可达格子枚举中。 -/
 theorem reachable_tiles_complete
     {reachableTiles : RoomState → Position → List Position}
     (hcomplete : ReachableTilesComplete reachableTiles)

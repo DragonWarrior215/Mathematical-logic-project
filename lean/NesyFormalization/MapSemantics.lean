@@ -3,8 +3,7 @@ import NesyFormalization.EnvFormalization
 namespace EnvFormalization
 
 /-!
-  Map-level semantics from `定理列表.xlsx`, based on the environment
-  `RoomState` and `Position` types.
+  来自 `定理列表.xlsx` 的地图层语义，基于环境中的 `RoomState` 和 `Position` 类型。
 -/
 
 def Neighbor (p q : Position) : Prop :=

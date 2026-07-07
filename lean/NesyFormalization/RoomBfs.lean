@@ -2,45 +2,45 @@ import NesyFormalization.HighPlanner
 
 namespace EnvFormalization
 
-/-- Room-grid coordinate used by the room-level router. -/
+/-- 房间层路由器使用的房间网格坐标。 -/
 abbrev RoomCoord := Int × Int
 
-/-- Known room graph: an edge says a direction from one room reaches another room. -/
+/-- 已知房间图：一条边表示从某房间沿某方向可到达另一房间。 -/
 structure RoomGraph where
   edge : RoomCoord → Direction → RoomCoord → Prop
 
-/-- Room reachability, abstracted as existence of a room-coordinate path. -/
+/-- 房间可达性，抽象为存在一条房间坐标路径。 -/
 def RoomReachable (_g : RoomGraph) (start target : RoomCoord) : Prop :=
   ∃ path : List RoomCoord, path.head? = some start ∧ path.getLast? = some target
 
-/-- Room BFS returns only the first direction to take toward the target room. -/
+/-- 房间 BFS 只返回通往目标房间时第一步应采取的方向。 -/
 abbrev FirstHop := RoomGraph → RoomCoord → RoomCoord → Option Direction
 
-/-- First-hop soundness: a returned direction starts a path toward the target. -/
+/-- 第一跳可靠性：返回的方向会开启一条通往目标的路径。 -/
 def FirstHopSound (firstHop : FirstHop) : Prop :=
   ∀ g start target dir,
     firstHop g start target = some dir →
     ∃ next, g.edge start dir next ∧ RoomReachable g next target
 
-/-- Locked-exit respect: a returned first hop must not be a locked forbidden edge. -/
+/-- 尊重锁定出口：返回的第一跳不能是被锁定禁止的边。 -/
 def FirstHopRespectsLocked
     (firstHop : FirstHop) (locked : RoomGraph → RoomCoord → Direction → Prop) : Prop :=
   ∀ g start target dir,
     firstHop g start target = some dir → locked g start dir → False
 
-/-- Shortestness interface for room-level BFS. -/
+/-- 房间层 BFS 的最短性接口。 -/
 def FirstHopShortest (firstHop : FirstHop) : Prop :=
   ∀ g start target dir, firstHop g start target = some dir → True
 
-/-- Completeness interface for room-level BFS. -/
+/-- 房间层 BFS 的完备性接口。 -/
 def FirstHopComplete (firstHop : FirstHop) : Prop :=
   ∀ g start target, RoomReachable g start target → ∃ dir, firstHop g start target = some dir
 
-/-- None-result interface: returning none means the target room is unreachable. -/
+/-- none 结果接口：返回 none 表示目标房间不可达。 -/
 def FirstHopNoneUnreachable (firstHop : FirstHop) : Prop :=
   ∀ g start target, firstHop g start target = none → ¬ RoomReachable g start target
 
-/-- `first_hop_sound`: the first hop lies on a legal room path toward the target. -/
+/-- `first_hop_sound`：第一跳位于一条通往目标的合法房间路径上。 -/
 theorem first_hop_sound
     {firstHop : FirstHop}
     (hsound : FirstHopSound firstHop)
@@ -49,7 +49,7 @@ theorem first_hop_sound
     ∃ next, g.edge start dir next ∧ RoomReachable g next target := by
   exact hsound g start target dir hfind
 
-/-- `first_hop_respects_locked_exit`: room BFS does not choose a forbidden locked exit. -/
+/-- `first_hop_respects_locked_exit`：房间 BFS 不会选择被禁止的锁定出口。 -/
 theorem first_hop_respects_locked_exit
     {firstHop : FirstHop} {locked : RoomGraph → RoomCoord → Direction → Prop}
     (hspec : FirstHopRespectsLocked firstHop locked)
@@ -59,7 +59,7 @@ theorem first_hop_respects_locked_exit
     False := by
   exact hspec g start target dir hfind hlocked
 
-/-- `first_hop_shortest`: a BFS satisfying the shortestness spec returns a shortest first hop. -/
+/-- `first_hop_shortest`：满足最短性规格的 BFS 会返回最短第一跳。 -/
 theorem first_hop_shortest
     {firstHop : FirstHop}
     (hshort : FirstHopShortest firstHop)
@@ -68,7 +68,7 @@ theorem first_hop_shortest
     True := by
   exact hshort g start target dir hfind
 
-/-- `first_hop_complete`: a complete room BFS returns a first hop when a room path exists. -/
+/-- `first_hop_complete`：完备的房间 BFS 会在房间路径存在时返回第一跳。 -/
 theorem first_hop_complete
     {firstHop : FirstHop}
     (hcomplete : FirstHopComplete firstHop)
@@ -77,7 +77,7 @@ theorem first_hop_complete
     ∃ dir, firstHop g start target = some dir := by
   exact hcomplete g start target hreach
 
-/-- `first_hop_none_unreachable`: a none result rules out room reachability. -/
+/-- `first_hop_none_unreachable`：none 结果会排除房间可达性。 -/
 theorem first_hop_none_unreachable
     {firstHop : FirstHop}
     (hnone : FirstHopNoneUnreachable firstHop)

@@ -2,47 +2,47 @@ import NesyFormalization.MapSemantics
 
 namespace EnvFormalization
 
-/-- Tracker abstraction: a monster position plus an uncertainty radius. -/
+/-- 跟踪器抽象：怪物位置加上一个不确定性半径。 -/
 structure TrackedMonster where
   pos : Position
   uncertainty : Nat := 0
   deriving Repr, DecidableEq
 
-/-- Absolute difference on natural coordinates. -/
+/-- 自然数坐标上的绝对差。 -/
 def absDiff (a b : Nat) : Nat :=
   if a ≤ b then b - a else a - b
 
-/-- Chebyshev distance, matching square uncertainty regions around monsters. -/
+/-- Chebyshev 距离，对应怪物周围的方形不确定区域。 -/
 def chebyshev (p q : Position) : Nat :=
   Nat.max (absDiff p.1 q.1) (absDiff p.2 q.2)
 
-/-- Conservative danger radius for a tracked monster. -/
+/-- 已跟踪怪物的保守危险半径。 -/
 def dangerRadius (m : TrackedMonster) : Nat :=
   m.uncertainty + 1
 
-/-- A tile is blocked by a monster region when it is in bounds and within radius plus margin. -/
+/-- 若格子在边界内且位于半径加安全边距的范围内，则它被怪物区域阻挡。 -/
 def monsterBlockedTile (m : TrackedMonster) (margin : Nat) (p : Position) : Prop :=
   InBounds p ∧ chebyshev p m.pos ≤ dangerRadius m + margin
 
-/-- A tile lies inside a single monster's uncertainty danger region. -/
+/-- 一个格子位于单个怪物的不确定危险区域内。 -/
 def inMonsterDanger (p : Position) (m : TrackedMonster) : Prop :=
   chebyshev p m.pos ≤ dangerRadius m
 
-/-- A tile lies in the danger region of at least one tracked monster. -/
+/-- 一个格子位于至少一个已跟踪怪物的危险区域内。 -/
 def inDangerRegion (monsters : List TrackedMonster) (p : Position) : Prop :=
   ∃ m, m ∈ monsters ∧ inMonsterDanger p m
 
-/-- Symbolic safety means not being in any tracked monster danger region. -/
+/-- 符号安全表示不处于任何已跟踪怪物的危险区域中。 -/
 def positionSafe (monsters : List TrackedMonster) (p : Position) : Prop :=
   ¬ inDangerRegion monsters p
 
-/-- `monster_blocked_in_bounds`: every monster-blocked tile is explicitly in bounds. -/
+/-- `monster_blocked_in_bounds`：每个被怪物阻挡的格子都显式位于边界内。 -/
 theorem monster_blocked_in_bounds
     {m : TrackedMonster} {margin : Nat} {p : Position}
     (h : monsterBlockedTile m margin p) : InBounds p := by
   exact h.1
 
-/-- `monster_uncertainty_covered`: coverage by the uncertainty radius implies blocked-at-margin-zero. -/
+/-- `monster_uncertainty_covered`：被不确定性半径覆盖意味着在安全边距为 0 时被阻挡。 -/
 theorem monster_uncertainty_covered
     {m : TrackedMonster} {p : Position}
     (hin : InBounds p)
@@ -50,7 +50,7 @@ theorem monster_uncertainty_covered
     monsterBlockedTile m 0 p := by
   exact ⟨hin, by simpa using hcover⟩
 
-/-- `monster_margin_monotone`: increasing the safety margin can only enlarge the blocked region. -/
+/-- `monster_margin_monotone`：增大安全边距只会扩大阻挡区域。 -/
 theorem monster_margin_monotone
     {m : TrackedMonster} {p : Position} {margin margin' : Nat}
     (hle : margin ≤ margin')
@@ -58,16 +58,16 @@ theorem monster_margin_monotone
     monsterBlockedTile m margin' p := by
   exact ⟨h.1, Nat.le_trans h.2 (Nat.add_le_add_left hle (dangerRadius m))⟩
 
-/-- Real-world safety: the candidate tile is not strictly adjacent to any real monster. -/
+/-- 真实世界安全性：候选格子不与任何真实怪物严格相邻。 -/
 def RealMonsterSafe (realMonsters : List Position) (p : Position) : Prop :=
   ∀ real, real ∈ realMonsters → ¬ Neighbor p real
 
-/-- Interface assumption connecting symbolic monster regions to real monster positions. -/
+/-- 将符号怪物区域与真实怪物位置连接起来的接口假设。 -/
 def MonsterRegionSound
     (tracked : List TrackedMonster) (realMonsters : List Position) : Prop :=
   ∀ p, positionSafe tracked p → RealMonsterSafe realMonsters p
 
-/-- `monster_region_real_sound`: symbolic safety implies real safety under the grounding interface. -/
+/-- `monster_region_real_sound`：在语义落地接口下，符号安全蕴含真实安全。 -/
 theorem monster_region_real_sound
     {tracked : List TrackedMonster} {realMonsters : List Position} {p : Position}
     (hsound : MonsterRegionSound tracked realMonsters)

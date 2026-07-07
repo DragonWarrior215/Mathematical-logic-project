@@ -10,6 +10,5 @@ import NesyFormalization.Composition
 import NesyFormalization.TaskCompletion
 
 /-!
-  Aggregates the upper-layer theorem files following the sections of
-  `../docs/定理列表.xlsx`.
+  按照 `../docs/定理列表.xlsx` 的章节聚合上层定理文件。
 -/

@@ -1,10 +1,9 @@
 import Std
 
 /-!
-Module 1: environment formalization for the NesyLink mathematical logic tasks.
+模块 1：NesyLink 数理逻辑任务的环境形式化。
 
-This file intentionally models the symbolic game layer at tile granularity and
-keeps close correspondence with the Python implementation in:
+本文件刻意在格子（tile）粒度上建模符号游戏层，并尽量与以下 Python 实现保持对应：
 
 - `nesylink/core/constants.py`
 - `nesylink/core/state.py`
@@ -16,20 +15,16 @@ keeps close correspondence with the Python implementation in:
 - `nesylink/core/equipment/weapons.py`
 - `nesylink/core/equipment/defense.py`
 
-Simplifications that are still documented as environment abstractions:
+仍作为环境抽象记录下来的简化如下：
 
-1. Pixel movement is abstracted to tile movement.
-2. Monster AI is modeled symbolically at tile granularity, but pixel-level
-   hitboxes, continuous collision response, and knockback are still abstracted.
-3. Abyss control lock, delayed respawn, and respawn-tile priority are modeled
-   symbolically at tile granularity.
-4. Exit runtime state is folded into the `Exit.unlocked` field.
-5. Monster move periods (e.g. patrollers moving every 2 steps in Python) are
-   not modeled; all monsters move every step. This is a conservative
-   over-approximation—any safety property proven in Lean holds a fortiori
-   in Python where monsters are slower.
+1. 像素级移动被抽象为格子移动。
+2. 怪物 AI 在格子粒度上符号化建模，但像素级碰撞盒、连续碰撞响应和击退仍被抽象掉。
+3. 深渊控制锁、延迟重生和重生格子优先级都在格子粒度上符号化建模。
+4. 出口运行时状态被折叠进 `Exit.unlocked` 字段。
+5. 怪物移动周期未建模；例如 Python 中巡逻怪每 2 步移动一次，而这里所有怪物每步移动。
+   这是保守的过近似：若某个安全性质在 Lean 中成立，那么在怪物更慢的 Python 环境中也成立。
 
-No `sorry`, `admit`, or custom axioms are used.
+未使用 `sorry`、`admit` 或自定义公理。
 -/
 
 namespace EnvFormalization

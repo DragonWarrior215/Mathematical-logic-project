@@ -2,7 +2,7 @@ import NesyFormalization.MonsterDanger
 
 namespace EnvFormalization
 
-/-- The tile targeted by a movement action, or `none` for passive/non-movement actions. -/
+/-- 移动动作的目标格子；对被动或非移动动作返回 `none`。 -/
 def actionTarget? (w : WorldState) : Action → Option Position
   | .up => some (facingTile w.player .up)
   | .down => some (facingTile w.player .down)
@@ -12,13 +12,13 @@ def actionTarget? (w : WorldState) : Action → Option Position
   | .interactA => none
   | .shieldB => none
 
-/-- An action is safe when its target tile, if any, is outside tracked monster danger regions. -/
+/-- 若动作存在目标格子，且该格子位于已跟踪怪物危险区域之外，则动作安全。 -/
 def actionSafe (w : WorldState) (tracked : List TrackedMonster) (a : Action) : Prop :=
   match actionTarget? w a with
   | some p => positionSafe tracked p
   | none => True
 
-/-- Relation describing how the shield either passes, allows, or replaces a requested action. -/
+/-- 描述安全屏蔽如何透传、允许或替换请求动作的关系。 -/
 inductive Shielded (w : WorldState) (tracked : List TrackedMonster) (fallback : Action) :
     Action → Action → Prop where
   | passNonMove {a : Action} :
@@ -34,7 +34,7 @@ inductive Shielded (w : WorldState) (tracked : List TrackedMonster) (fallback : 
       actionTarget? w fallback = none →
       Shielded w tracked fallback a fallback
 
-/-- `shield_real_world_safe`: shield-filtered movement is real-world safe under region soundness. -/
+/-- `shield_real_world_safe`：在区域可靠性下，经安全屏蔽过滤的移动在真实世界中安全。 -/
 theorem shield_real_world_safe
     {w : WorldState} {tracked : List TrackedMonster} {realMonsters : List Position}
     {fallback requested issued : Action}
