@@ -52,6 +52,7 @@ class Tracker:
     perceive_requested: bool = True
     expect_transition: str | None = None
     last_transition_result: str | None = None   # "moved" | "blocked" | None
+    last_transition_dir: str | None = None      # direction actually registered
     last_move_blocked: bool = False              # reward-feedback: last move hit a wall
     _move_origin_px: tuple[float, float] | None = None
     _move_dir: str | None = None
@@ -107,13 +108,21 @@ class Tracker:
                 )
                 jumped = diff >= 12
             if jumped:
-                self.memory.transition(self.expect_transition, state)
+                # The push can accidentally cross a DIFFERENT open exit en
+                # route (flush contact teleports immediately); trust the
+                # landing side over the expectation when they disagree, so
+                # the odometry and UseExit's direction check stay honest.
+                observed = self._landing_direction(actual)
+                direction = observed or self.expect_transition
+                self.memory.transition(direction, state)
+                self.last_transition_dir = direction
                 self.last_transition_result = "moved"
             else:
                 self.memory.room.failed_exits[self.expect_transition] = (
                     self.memory.room.failed_exits.get(self.expect_transition, 0) + 1
                 )
                 self.memory.integrate_keyframe(state)
+                self.last_transition_dir = None
                 self.last_transition_result = "blocked"
             self.expect_transition = None
         else:
@@ -157,6 +166,7 @@ class Tracker:
                         }.get(self._move_dir)
             if crossed is not None:
                 self.memory.transition(crossed, state)
+                self.last_transition_dir = crossed
                 self.last_transition_result = "moved"
             else:
                 # Prediction/reality divergences are resolved by trusting
@@ -172,6 +182,23 @@ class Tracker:
         self.perceive_requested = False
         self._move_origin_px = None
         self._move_dir = None
+
+    def _landing_direction(self, actual: tuple[float, float]) -> str | None:
+        """Infer the crossing direction from the entry-spawn side: crossing
+        east drops us at the WEST edge of the new room, etc. Returns None
+        when ambiguous (corner/center spawns)."""
+        margin = 3 * TILE_SIZE
+        x, y = actual
+        candidates = []
+        if x < margin:
+            candidates.append("east")
+        if x > MAP_W_PX - margin - TILE_SIZE:
+            candidates.append("west")
+        if y < margin:
+            candidates.append("south")
+        if y > MAP_H_PX - margin - TILE_SIZE:
+            candidates.append("north")
+        return candidates[0] if len(candidates) == 1 else None
 
     # ------------------------------------------------------------------
     # Transition model (dead-reckoning)

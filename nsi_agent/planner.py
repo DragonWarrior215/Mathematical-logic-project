@@ -631,7 +631,8 @@ class FallbackPlanner:
         exit_goals: set[tuple[int, int]] = set()
         direct_costs: list[int] = []
         for direction, exit_state in state.exits.items():
-            if exit_state != "locked":
+            if exit_state != "locked" \
+                    or direction in ctx.memory.room.opened_exits:
                 continue
             goals = {t for t in EXIT_TILES[direction] if walkable(ctx, t)}
             path = bfs_path(ctx, here, goals, avoid_monsters=False)
@@ -736,10 +737,17 @@ class FallbackPlanner:
         return Goal(key, "open_chest", {"target": chest})
 
     def _task5_locked_exit_room(self, ctx: Ctx) -> Coord | None:
+        # Behavioral reconciliation (§6.1): a lock the engine confirmed
+        # consumed must not re-nominate its room — perception may keep
+        # misreading the opened door as locked, and with a non-consuming
+        # key this oscillates the escape goal until the drain kills us.
         candidates = [
             coord
             for coord, room in ctx.memory.rooms.items()
-            if room.state is not None and "locked" in room.state.exits.values()
+            if room.state is not None and any(
+                exit_state == "locked" and direction not in room.opened_exits
+                for direction, exit_state in room.state.exits.items()
+            )
         ]
         if not candidates:
             return None

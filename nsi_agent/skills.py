@@ -84,12 +84,15 @@ def bfs_path(
     *,
     avoid_monsters: bool = True,
     allow_hazard: bool = False,
+    avoid: set[Tile] | None = None,
 ) -> list[Tile] | None:
     if not goals:
         return None
     if start in goals:
         return [start]
     forbidden = monster_blocked_tiles(ctx) if avoid_monsters else set()
+    if avoid:
+        forbidden |= avoid - goals
     forbidden.discard(start)
     queue: deque[Tile] = deque([start])
     parent: dict[Tile, Tile | None] = {start: None}
@@ -200,6 +203,7 @@ class GoToTile:
     adjacent: bool = False
     align: bool = False          # require exact pixel alignment on arrival
     max_steps: int = 900
+    avoid: frozenset[Tile] = frozenset()   # e.g. foreign open-exit tiles
     _steps: int = 0
     _last_sync_px: tuple[float, float] | None = None
     _moves_since_sync: int = 0
@@ -207,11 +211,13 @@ class GoToTile:
     _bump_streak: int = 0
 
     def reset(self, ctx: Ctx, *, target: Tile, adjacent: bool = False,
-              align: bool = False, max_steps: int = 900) -> None:
+              align: bool = False, max_steps: int = 900,
+              avoid: frozenset[Tile] = frozenset()) -> None:
         self.target = (int(target[0]), int(target[1]))
         self.adjacent = adjacent
         self.align = align
         self.max_steps = max_steps
+        self.avoid = avoid
         self._steps = 0
         self._last_sync_px = None
         self._moves_since_sync = 0
@@ -275,11 +281,12 @@ class GoToTile:
             self._moves_since_sync += 1
             return ("act", shielded(ctx, action))
 
-        path = bfs_path(ctx, here, goals)
+        path = bfs_path(ctx, here, goals, avoid=self.avoid)
         if path is None:
             # Retry ignoring monster balls once (shield still guards moves);
             # a truly disconnected target is a symbolic failure.
-            path = bfs_path(ctx, here, goals, avoid_monsters=False)
+            path = bfs_path(ctx, here, goals, avoid_monsters=False,
+                            avoid=self.avoid)
             if path is None:
                 return ("fail", ("no_path", self.target))
         waypoint = path[1] if len(path) > 1 else path[0]
@@ -468,6 +475,12 @@ class UseExit:
         result = ctx.tracker.last_transition_result
         if result == "moved":
             ctx.tracker.last_transition_result = None
+            crossed = ctx.tracker.last_transition_dir
+            if crossed not in (None, self.direction):
+                # We DID change rooms — but through a different open exit
+                # brushed en route. Claiming success would poison the
+                # opened_exits reconciliation with a lock we never opened.
+                return ("fail", ("crossed_other_exit", self.direction, crossed))
             return ("ok", self.direction)
         if result == "blocked":
             ctx.tracker.last_transition_result = None
@@ -498,17 +511,23 @@ class UseExit:
             return ("act", DIR_TO_MOVE_ACTION[_exit_push_dir(self.direction)])
 
         if self._nav is None:
+            # Never path over ANOTHER direction's exit tiles: flush contact
+            # teleports instantly, hijacking this goal mid-route.
+            foreign = frozenset(
+                t for d, tiles in EXIT_TILES.items() if d != self.direction
+                for t in tiles
+            )
             best_target = exit_tiles[0]
             best_path = None
             for tile in exit_tiles:
-                path = bfs_path(ctx, here, {tile})
+                path = bfs_path(ctx, here, {tile}, avoid=set(foreign))
                 if path is None:
                     continue
                 if best_path is None or len(path) < len(best_path):
                     best_target = tile
                     best_path = path
             self._nav = GoToTile()
-            self._nav.reset(ctx, target=best_target, align=True)
+            self._nav.reset(ctx, target=best_target, align=True, avoid=foreign)
         kind, payload = self._nav.step(ctx)
         if kind == "fail":
             return ("fail", ("exit_unreachable", self.direction, payload))
