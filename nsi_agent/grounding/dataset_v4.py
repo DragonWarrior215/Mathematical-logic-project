@@ -437,6 +437,177 @@ def gen_task_sweeps(writer: Writer, rng: random.Random,
 
 
 # ---------------------------------------------------------------------------
+# 5. Course-map object shuffles: break room-identity -> object-position priors
+#
+# Diagnosis on task4_object_shift: v4 reads unseen layouts fine (96.6%
+# grid-exact) but on the *familiar* task_4 north room it reproduces a
+# memorized row template — the key chest reads one tile off at every
+# position except the original. Domain randomization over the course
+# rooms severs that correlation: same walls, objects anywhere.
+# ---------------------------------------------------------------------------
+
+MOVABLE_KINDS = {"chest", "switch", "button", "npc"}
+
+
+def _course_room_files() -> list[Path]:
+    import nesylink
+
+    base = Path(nesylink.__file__).parent / "map_data" / "mathematical_logic"
+    files: list[Path] = []
+    for task_dir in sorted(base.iterdir()):
+        if not task_dir.is_dir():
+            continue
+        rooms = task_dir / "rooms"
+        files += sorted(rooms.glob("*.json")) if rooms.is_dir() \
+            else sorted(task_dir.glob("room_*.json"))
+    return files
+
+
+def _occupied_tiles(room: dict) -> set[tuple[int, int]]:
+    tiles: set[tuple[int, int]] = set()
+    for obj in room.get("objects", []):
+        if "pos" in obj:
+            tiles.add(tuple(obj["pos"]))
+        for tile in obj.get("tiles", []) or []:
+            tiles.add(tuple(tile))
+        for rect in obj.get("rects", []) or []:
+            (x0, y0), (x1, y1) = rect["from"], rect["to"]
+            for y in range(min(y0, y1), max(y0, y1) + 1):
+                for x in range(min(x0, x1), max(x0, x1) + 1):
+                    tiles.add((x, y))
+    for dyn in room.get("dynamic_objects", []):
+        for state in dyn.get("states", {}).values():
+            for tile in state.get("tiles", []):
+                tiles.add(tuple(tile))
+    return tiles
+
+
+def _standalone(room: dict) -> dict:
+    room = json.loads(json.dumps(room))     # deep copy
+    for exit_entry in room.get("exits", []):
+        exit_entry["target_room"] = room["id"]
+        exit_entry["target_entry"] = "default"
+    if "default" not in room.get("spawns", {}):
+        room.setdefault("spawns", {})["default"] = next(iter(room["spawns"].values()))
+    room["default_spawn"] = "default"
+    return room
+
+
+def gen_task_shuffles(writer: Writer, maps_root: Path, per_room: int,
+                      rng: random.Random) -> None:
+    all_door_tiles = {t for tiles in DOOR_TILES.values() for t in tiles}
+    for room_path in _course_room_files():
+        base = json.loads(room_path.read_text("utf-8"))
+        movable = [
+            i for i, obj in enumerate(base.get("objects", []))
+            if obj.get("kind") in MOVABLE_KINDS and not obj.get("hidden")
+            and "pos" in obj
+        ]
+        if not movable:
+            continue
+        walls = {
+            (x, y)
+            for y, row in enumerate(base["layout"])
+            for x, ch in enumerate(row) if ch == "#"
+        }
+        blocked = walls | _occupied_tiles(base) | all_door_tiles
+        candidates = [
+            (x, y)
+            for x in range(10) for y in range(8)
+            if (x, y) not in blocked
+        ]
+        task_name = room_path.parent.parent.name \
+            if room_path.parent.name == "rooms" else room_path.parent.name
+        stem = f"shuf_{task_name}_{room_path.stem}"
+        for index in range(per_room):
+            room = _standalone(base)
+            targets = rng.sample(candidates, len(movable) + 1)
+            for slot, obj_index in enumerate(movable):
+                room["objects"][obj_index]["pos"] = list(targets[slot])
+            room["spawns"]["default"] = list(targets[-1])
+            map_dir = maps_root / f"{stem}_{index:02d}"
+            map_dir.mkdir(parents=True, exist_ok=True)
+            map_path = map_dir / "room.json"
+            map_path.write_text(json.dumps(room), "utf-8")
+            try:
+                env = make_env(
+                    map_path=map_path,
+                    reward_id="mathematical_logic/task_1",
+                    observation_mode="pixels",
+                    max_steps=10**6,
+                )
+            except Exception as error:
+                # Rooms whose switches target dynamic objects in OTHER
+                # rooms (task_4 west -> center_bridge) cannot load
+                # standalone. If the room is the dungeon's spawn room,
+                # shuffle entity positions at runtime instead.
+                print(f"{stem}: standalone load failed ({error}); "
+                      "trying runtime shuffle")
+                _runtime_shuffles(
+                    writer, stem, f"mathematical_logic/{task_name}",
+                    room_path.stem, per_room, rng,
+                )
+                break
+            try:
+                env.reset(seed=rng.randint(0, 10**6))
+                inner = env.unwrapped.engine.runtime.room
+                floors = free_tiles(inner)
+                capture(env, writer, stem)
+                for _ in range(2):
+                    teleport(env, rng.choice(floors), rng.choice(FACINGS))
+                    capture(env, writer, stem)
+                locked = [
+                    c for c in inner.exits if c.exit_type == "locked_key"
+                ]
+                if locked and rng.random() < 0.5:
+                    for exit_config in locked:
+                        open_exit(inner, exit_config)
+                    teleport(env, rng.choice(floors), rng.choice(FACINGS))
+                    capture(env, writer, stem)
+            finally:
+                env.close()
+        print(f"{stem}: {len(writer.records)} samples")
+
+
+def _runtime_shuffles(writer: Writer, stem: str, task_id: str, room_id: str,
+                      per_room: int, rng: random.Random) -> None:
+    """Shuffle entity positions by mutating runtime state on the real
+    dungeon — only works for the spawn room, where the player starts."""
+    for _ in range(per_room):
+        env = make_env(task_id=task_id, observation_mode="pixels")
+        try:
+            env.reset(seed=rng.randint(0, 10**6))
+            room = env.unwrapped.engine.runtime.room
+            if room.room_id != room_id:
+                print(f"{stem}: spawn room is {room.room_id}, skipping")
+                return
+            entities = [
+                e for e in (
+                    list(room.chests.values()) + list(room.buttons.values())
+                    + list(room.switches.values()) + list(room.npcs.values())
+                )
+                if getattr(e, "is_visible", True)
+            ]
+            if not entities:
+                return
+            blocked = set(room.walls) | set(room.dynamic_tiles)
+            blocked |= {tuple(t) for c in room.exits for t in c.tiles}
+            blocked |= {trap.pos for trap in room.traps.values()}
+            blocked |= {e.pos for e in entities}
+            candidates = [
+                (x, y)
+                for x in range(room.width) for y in range(room.height)
+                if (x, y) not in blocked
+            ]
+            for entity, tile in zip(entities, rng.sample(candidates, len(entities))):
+                entity.pos = tile
+            floors = free_tiles(room)
+            capture(env, writer, stem)
+            for _ in range(2):
+                teleport(env, rng.choice(floors), rng.choice(FACINGS))
+                capture(env, writer, stem)
+        finally:
+            env.close()
 
 
 def main() -> None:
@@ -445,6 +616,9 @@ def main() -> None:
     parser.add_argument("--flip-rooms", type=int, default=700)
     parser.add_argument("--abyss-rooms", type=int, default=400)
     parser.add_argument("--sweep-every", type=int, default=50)
+    parser.add_argument("--task-shuffles", type=int, default=0,
+                        help="object-shuffle captures per course room; when "
+                             "set, ONLY this generator runs (v4b supplement)")
     parser.add_argument("--seed", type=int, default=41)
     parser.add_argument("--relabel-in", type=Path, default=None)
     parser.add_argument("--relabel-out", type=Path, default=None)
@@ -458,6 +632,10 @@ def main() -> None:
     rng = random.Random(args.seed)
     writer = Writer(args.out)
     heldout: set[str] = set()
+    if args.task_shuffles:
+        gen_task_shuffles(writer, args.out / "shuffle_maps", args.task_shuffles, rng)
+        writer.flush(heldout)
+        return
     gen_task_sweeps(writer, rng, args.sweep_every)
     gen_flip_variants(writer, args.out / "flip_maps", args.flip_rooms, rng, heldout)
     gen_abyss_matrix(writer, args.out / "abyss_maps", args.abyss_rooms, rng, heldout)
