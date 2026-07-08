@@ -82,6 +82,14 @@ python utils/evaluate_policy.py --policy submission_agent.py \
     --tasks mathematical_logic/task_1 ... --num-envs 10
 ```
 
+### 获取训练好的感知模型（v4b）
+
+无需重训：终版 QLoRA 适配器（153MB，held-out 未见布局整格全对 96.0%）
+已发布在 [GitHub Release `grounding-v4b`](https://github.com/DragonWarrior215/Mathematical-logic-project/releases/tag/grounding-v4b)，
+含 sha256 校验与两种加载方式（`NSI_VLM_ADAPTER` 免合并直接加载，或
+`merge_lora` 合并为独立模型）。基座 Qwen2.5-VL-3B-Instruct 从
+HF/hf-mirror 公开下载。
+
 ## 结果（随开发更新）
 
 - **Oracle 后端（符号层上界）**：5/5 任务成功率 100%（seeds 0-2）；
