@@ -79,6 +79,7 @@ class Memory:
         self.step_count: int = 0
         self.task_id: str | None = None
         self.heal_events: int = 0
+        self.button_press_events: int = 0
         self._hp_signal_tracked = False
 
     # -- room bookkeeping ------------------------------------------------
@@ -155,6 +156,13 @@ class Memory:
                 and weights.get("agent_healed"):
             self.heal_events += int(healed)
             self.note_heal(float(healed))
+        pressed = signals.get("button_pressed")
+        if isinstance(pressed, (int, float)) and pressed > 0 \
+                and weights.get("button_pressed"):
+            # Buttons latch on contact; the reward signal is the engine's
+            # authoritative confirmation. PressButton consumes this instead
+            # of visually verifying a tile occluded by the player sprite.
+            self.button_press_events += int(pressed)
         if not self._hp_signal_tracked \
                 and self.task_id == "mathematical_logic/task_5" \
                 and self.step_count % 200 == 0:
@@ -174,4 +182,5 @@ class Memory:
         self.step_count = 0
         self.task_id = task_id
         self.heal_events = 0
+        self.button_press_events = 0
         self._hp_signal_tracked = False

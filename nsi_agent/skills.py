@@ -365,11 +365,13 @@ class PressButton:
     target: Tile = (0, 0)
     _nav: GoToTile = field(default_factory=GoToTile)
     _verifying: int = 0
+    _press_baseline: int = 0
 
     def reset(self, ctx: Ctx, *, target: Tile) -> None:
         self.target = (int(target[0]), int(target[1]))
         self._nav.reset(ctx, target=self.target)
         self._verifying = 0
+        self._press_baseline = ctx.memory.button_press_events
 
     def step(self, ctx: Ctx) -> StepResult:
         state = ctx.state
@@ -377,6 +379,11 @@ class PressButton:
             ctx.tracker.request_perceive()
             return ("act", ACTION_NOOP)
         if state.tile(*self.target) == schema.TILE_BUTTON_PRESSED:
+            return ("ok", self.target)
+        if ctx.memory.button_press_events > self._press_baseline:
+            # Engine-confirmed press via the reward channel. The visual
+            # check above can never fire while we STAND on the button —
+            # the player sprite occludes the tile.
             return ("ok", self.target)
         if ctx.tracker.player_tile() == self.target:
             nudge = disambiguation_nudge(ctx)
