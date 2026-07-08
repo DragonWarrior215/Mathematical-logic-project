@@ -1,34 +1,135 @@
-import NesyFormalization.MonsterDanger
+import NesyFormalization.NsiAgentFormalization
 
 namespace EnvFormalization
 
-/-- 路径链要求每一对连续格子都是严格邻居。 -/
-def PathChain : List Position → Prop
-  | [] => True
-  | [_] => True
-  | p :: q :: rest => Neighbor p q ∧ PathChain (q :: rest)
+/-- 布尔边界检查蕴含命题版边界检查。 -/
+theorem inBoundsBool_sound {p : Position}
+    (h : inBounds p = true) : InBounds p := by
+  unfold inBounds at h
+  unfold InBounds
+  simp at h
+  exact h
 
-/-- 路径中的每个格子都必须在房间中满足严格可行走性。 -/
-def PathWalkable (r : RoomState) (path : List Position) : Prop :=
-  ∀ p, p ∈ path → walkable r p
+/-- 布尔 `walkable` 在默认不允许危险格时蕴含命题版 `walkable`。 -/
+theorem walkableBool_sound {r : RoomState} {p : Position}
+    (h : walkableBool r p false = true) :
+    walkable r p := by
+  unfold walkableBool at h
+  simp at h
+  exact ⟨inBoundsBool_sound h.1.1, h.1.2, by intro _; exact h.2⟩
 
-/-- 路径从 `start` 开始并在 `goal` 结束。 -/
-def PathEndpoints (path : List Position) (start goal : Position) : Prop :=
-  path.head? = some start ∧ path.getLast? = some goal
+/-- `gridNeighbors` 只产生严格四邻格。 -/
+theorem gridNeighbors_neighbor {p q : Position}
+    (h : q ∈ gridNeighbors p) : Neighbor p q := by
+  rcases p with ⟨x, y⟩
+  rcases q with ⟨qx, qy⟩
+  unfold gridNeighbors at h
+  by_cases hy : y = 0
+  · by_cases hx : x = 0
+    · simp [hy, hx] at h
+      unfold Neighbor
+      simp
+      omega
+    · simp [hy, hx] at h
+      unfold Neighbor
+      simp
+      omega
+  · by_cases hx : x = 0
+    · simp [hy, hx] at h
+      unfold Neighbor
+      simp
+      omega
+    · simp [hy, hx] at h
+      unfold Neighbor
+      simp
+      omega
 
-/-- 有效路径具有正确端点，只使用可行走格子，并按严格邻居关系移动。 -/
-def ValidPath (r : RoomState) (start goal : Position) (path : List Position) : Prop :=
-  PathEndpoints path start goal ∧ PathWalkable r path ∧ PathChain path
+/-- 若路径链已经到达 `current`，再接上严格邻格 `nxt` 后仍是路径链。 -/
+theorem pathChain_append_neighbor
+    {path : List Position} {current nxt : Position}
+    (hlast : path.getLast? = some current)
+    (hchain : PathChain path)
+    (hneigh : Neighbor current nxt) :
+    PathChain (path ++ [nxt]) := by
+  induction path with
+  | nil =>
+      simp [PathChain]
+  | cons p ps ih =>
+      cases ps with
+      | nil =>
+          simp at hlast
+          subst p
+          simp [PathChain, hneigh]
+      | cons q qs =>
+          simp [PathChain] at hchain ⊢
+          exact ⟨hchain.1, ih hlast hchain.2⟩
 
-/-- 可达性表示两个格子之间存在一条有效路径。 -/
-def Reachable (r : RoomState) (start goal : Position) : Prop :=
-  ∃ path, ValidPath r start goal path
+/--
+路径扩展引理：如果 `path` 已经是从 `start` 到 `current` 的有效路径，
+且 `nxt` 是可走的严格邻格，那么 `path ++ [nxt]` 是从 `start` 到 `nxt` 的有效路径。
+-/
+theorem validPath_extend
+    {r : RoomState} {start current nxt : Position} {path : List Position}
+    (hvalid : ValidPath r start current path)
+    (hneigh : Neighbor current nxt)
+    (hwalk : walkable r nxt) :
+    ValidPath r start nxt (path ++ [nxt]) := by
+  rcases hvalid with ⟨hend, hwalks, hchain⟩
+  rcases hend with ⟨hhead, hlast⟩
+  refine ⟨?_, ?_, ?_⟩
+  · constructor
+    · cases path with
+      | nil =>
+          simp at hhead
+      | cons p ps =>
+          simpa using hhead
+    · simp
+  · intro p hp
+    rw [List.mem_append] at hp
+    rcases hp with hp | hp
+    · exact hwalks p hp
+    · simp at hp
+      subst hp
+      exact hwalk
+  · exact pathChain_append_neighbor hlast hchain hneigh
 
-/-- BFS 可靠性：任意返回路径都是房间中的有效路径。 -/
+/--
+队列展开保持路径语义：从一个已经可靠的节点展开出的每个 child，
+仍然携带一条从起点到 child 当前位置的有效路径。
+-/
+theorem expandNode_sound
+    {r : RoomState} {start : Position} {seen avoid goals : List Position}
+    {node child : BfsNode}
+    (hnode : NodeSound r start node)
+    (hmem : child ∈ expandNode r seen avoid goals false node) :
+    NodeSound r start child := by
+  unfold expandNode at hmem
+  simp only [List.mem_filterMap] at hmem
+  rcases hmem with ⟨nxt, hnbr, hcase⟩
+  cases hseen : containsPos seen nxt
+  · cases hallowed : walkableBool r nxt false && allowedByAvoid avoid goals nxt
+    · simp [hseen, hallowed] at hcase
+    · simp [hseen, hallowed] at hcase
+      subst child
+      have hwalkBool : walkableBool r nxt false = true := by
+        have hallowed' := hallowed
+        simp at hallowed'
+        exact hallowed'.1
+      exact validPath_extend hnode (gridNeighbors_neighbor hnbr)
+        (walkableBool_sound hwalkBool)
+  · simp [hseen] at hcase
+
+/-!
+  下面这些是后续要证明的 BFS 性质目标/接口，不再提供“传入规格再返回规格”
+  的投影定理。真正已经证明的内容目前是上面的局部构造引理，例如
+  `gridNeighbors_neighbor` 和 `expandNode_sound`。
+-/
+
+/-- BFS 可靠性目标：任意返回路径都是房间中的有效路径。 -/
 def BfsSound (bfs : RoomState → Position → Position → Option (List Position)) : Prop :=
   ∀ r start goal path, bfs r start goal = some path → ValidPath r start goal path
 
-/-- BFS 无重复性质：任意返回路径都不包含重复格子。 -/
+/-- BFS 无重复性质目标：任意返回路径都不包含重复格子。 -/
 def BfsNoDup (bfs : RoomState → Position → Position → Option (List Position)) : Prop :=
   ∀ r start goal path, bfs r start goal = some path → path.Nodup
 
@@ -41,14 +142,14 @@ def BfsAvoidsMonsters
     p ∈ path →
     positionSafe (trackedOf r) p
 
-/-- BFS 最短性：返回路径不长于任何其他有效路径。 -/
+/-- BFS 最短性目标：返回路径不长于任何其他有效路径。 -/
 def BfsShortest (bfs : RoomState → Position → Position → Option (List Position)) : Prop :=
   ∀ r start goal path alt,
     bfs r start goal = some path →
     ValidPath r start goal alt →
     path.length ≤ alt.length
 
-/-- BFS 完备性：只要目标可达，BFS 就能返回某条路径。 -/
+/-- BFS 完备性目标：只要目标可达，BFS 就能返回某条路径。 -/
 def BfsComplete (bfs : RoomState → Position → Position → Option (List Position)) : Prop :=
   ∀ r start goal, Reachable r start goal → ∃ path, bfs r start goal = some path
 
@@ -59,119 +160,5 @@ def ReachableTilesSound (reachableTiles : RoomState → Position → List Positi
 /-- `reachable_tiles` 的完备性：每个确实可达的格子都会被报告。 -/
 def ReachableTilesComplete (reachableTiles : RoomState → Position → List Position) : Prop :=
   ∀ r start p, Reachable r start p → p ∈ reachableTiles r start
-
-/-- `bfs_path_adjacent`：返回的 BFS 路径中，连续格子都是严格邻居。 -/
-theorem bfs_path_adjacent
-    {bfs : RoomState → Position → Position → Option (List Position)}
-    (hsound : BfsSound bfs)
-    {r : RoomState} {start goal : Position} {path : List Position}
-    (hfind : bfs r start goal = some path) :
-    PathChain path := by
-  exact (hsound r start goal path hfind).2.2
-
-/-- `bfs_path_nodup`：返回的 BFS 路径不包含重复格子。 -/
-theorem bfs_path_nodup
-    {bfs : RoomState → Position → Position → Option (List Position)}
-    (hnodup : BfsNoDup bfs)
-    {r : RoomState} {start goal : Position} {path : List Position}
-    (hfind : bfs r start goal = some path) :
-    path.Nodup := by
-  exact hnodup r start goal path hfind
-
-/-- `bfs_path_in_bounds`：返回的 BFS 路径中每个格子都位于房间边界内。 -/
-theorem bfs_path_in_bounds
-    {bfs : RoomState → Position → Position → Option (List Position)}
-    (hsound : BfsSound bfs)
-    {r : RoomState} {start goal : Position} {path : List Position}
-    (hfind : bfs r start goal = some path) :
-    ∀ p, p ∈ path → InBounds p := by
-  intro p hp
-  exact walkable_in_bounds ((hsound r start goal path hfind).2.1 p hp)
-
-/-- `bfs_path_not_blocking`：返回的 BFS 路径不会经过阻挡格子。 -/
-theorem bfs_path_not_blocking
-    {bfs : RoomState → Position → Position → Option (List Position)}
-    (hsound : BfsSound bfs)
-    {r : RoomState} {start goal : Position} {path : List Position}
-    (hfind : bfs r start goal = some path) :
-    ∀ p, p ∈ path → isBlocking r p = false := by
-  intro p hp
-  exact walkable_not_blocking ((hsound r start goal path hfind).2.1 p hp)
-
-/-- `bfs_path_avoids_hazard`：严格 BFS 路径会避开激活的危险和怪物格子。 -/
-theorem bfs_path_avoids_hazard
-    {bfs : RoomState → Position → Position → Option (List Position)}
-    (hsound : BfsSound bfs)
-    {r : RoomState} {start goal : Position} {path : List Position}
-    (hfind : bfs r start goal = some path) :
-    ∀ p, p ∈ path → isHazardTile r p = false := by
-  intro p hp
-  exact walkable_not_hazard ((hsound r start goal path hfind).2.1 p hp)
-
-/-- `bfs_internal_avoids_monsters`：在避让规格下，返回路径上的格子会避开怪物危险。 -/
-theorem bfs_internal_avoids_monsters
-    {bfs : RoomState → Position → Position → Option (List Position)}
-    {trackedOf : RoomState → List TrackedMonster}
-    (havoid : BfsAvoidsMonsters bfs trackedOf)
-    {r : RoomState} {start goal p : Position} {path : List Position}
-    (hfind : bfs r start goal = some path)
-    (hmem : p ∈ path) :
-    positionSafe (trackedOf r) p := by
-  exact havoid r start goal path p hfind hmem
-
-/-- `bfs_shortest`：满足最短性规格的实现会返回一条最短有效路径。 -/
-theorem bfs_shortest
-    {bfs : RoomState → Position → Position → Option (List Position)}
-    (hshort : BfsShortest bfs)
-    {r : RoomState} {start goal : Position} {path alt : List Position}
-    (hfind : bfs r start goal = some path)
-    (halt : ValidPath r start goal alt) :
-    path.length ≤ alt.length := by
-  exact hshort r start goal path alt hfind halt
-
-/-- `bfs_complete`：满足完备性规格的实现会在路径存在时找到路径。 -/
-theorem bfs_complete
-    {bfs : RoomState → Position → Position → Option (List Position)}
-    (hcomplete : BfsComplete bfs)
-    {r : RoomState} {start goal : Position}
-    (hreach : Reachable r start goal) :
-    ∃ path, bfs r start goal = some path := by
-  exact hcomplete r start goal hreach
-
-/-- `bfs_none_iff_unreachable`：可靠且完备的 BFS 恰好在目标不可达时返回 none。 -/
-theorem bfs_none_iff_unreachable
-    {bfs : RoomState → Position → Position → Option (List Position)}
-    (hsound : BfsSound bfs)
-    (hcomplete : BfsComplete bfs)
-    {r : RoomState} {start goal : Position} :
-    bfs r start goal = none ↔ ¬ Reachable r start goal := by
-  constructor
-  · intro hnone hreach
-    rcases hcomplete r start goal hreach with ⟨path, hfind⟩
-    rw [hfind] at hnone
-    contradiction
-  · intro hunreach
-    cases hfind : bfs r start goal with
-    | none => rfl
-    | some path =>
-        exact False.elim (hunreach ⟨path, hsound r start goal path hfind⟩)
-
-/-- `reachable_tiles_sound`：可达格子枚举返回的每个格子都是可达的。 -/
-theorem reachable_tiles_sound
-    {reachableTiles : RoomState → Position → List Position}
-    (hsound : ReachableTilesSound reachableTiles)
-    {r : RoomState} {start p : Position}
-    (hmem : p ∈ reachableTiles r start) :
-    Reachable r start p := by
-  exact hsound r start p hmem
-
-/-- `reachable_tiles_complete`：每个可达格子都出现在完备的可达格子枚举中。 -/
-theorem reachable_tiles_complete
-    {reachableTiles : RoomState → Position → List Position}
-    (hcomplete : ReachableTilesComplete reachableTiles)
-    {r : RoomState} {start p : Position}
-    (hreach : Reachable r start p) :
-    p ∈ reachableTiles r start := by
-  exact hcomplete r start p hreach
 
 end EnvFormalization

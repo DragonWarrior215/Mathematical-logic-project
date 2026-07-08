@@ -67,12 +67,4 @@ def MonsterRegionSound
     (tracked : List TrackedMonster) (realMonsters : List Position) : Prop :=
   ∀ p, positionSafe tracked p → RealMonsterSafe realMonsters p
 
-/-- `monster_region_real_sound`：在语义落地接口下，符号安全蕴含真实安全。 -/
-theorem monster_region_real_sound
-    {tracked : List TrackedMonster} {realMonsters : List Position} {p : Position}
-    (hsound : MonsterRegionSound tracked realMonsters)
-    (hsafe : positionSafe tracked p) :
-    RealMonsterSafe realMonsters p := by
-  exact hsound p hsafe
-
 end EnvFormalization
