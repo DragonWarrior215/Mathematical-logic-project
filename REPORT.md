@@ -695,5 +695,4 @@ export NSI_VLM_MODEL=<merged model dir> NSI_VLM_4BIT=0
 python utils/evaluate_policy.py --policy submission_agent.py --num-envs 10
 ```
 
-可视化成绩单：`report/nsi-results.html`（自包含单文件，浏览器直接打开，
-支持明暗主题）。模块级技术说明另见 `nsi_agent/README.md`。
+模块级技术说明另见 `nsi_agent/README.md`。

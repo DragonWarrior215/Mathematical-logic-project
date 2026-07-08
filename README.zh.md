@@ -6,13 +6,30 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/) [![Gymnasium](https://img.shields.io/badge/Gymnasium-compatible-2ea44f.svg)](https://gymnasium.farama.org/) [![Package](https://img.shields.io/badge/install-pip%20install%20-e%20.-orange.svg)](#安装) [![Docs](https://img.shields.io/badge/docs-local-lightgrey.svg)](docs/README.md)
 
-[安装](#安装) · [快速开始](#快速开始) · [内置任务](#内置任务) · [架构](#架构) · [奖励](#奖励) · [训练](#训练) · [文档](#文档) · [English](readme.md)
+[安装](#安装) · [快速开始](#快速开始) · [内置任务](#内置任务) · [架构](#架构) · [奖励](#奖励) · [训练](#训练) · [文档](#文档) · [English](README.md)
 
 </div>
 
 ---
 
 `nesylink` 是一个面向强化学习实验的小型地牢游戏环境。项目将游戏机制、JSON 地图、Python 任务定义、奖励模块和 Gymnasium wrapper 分离，用户既可以直接使用内置任务，也可以在不修改核心引擎的情况下组合自己的环境。
+
+## 仓库结构
+
+本仓库同时是 26 年春季数理逻辑课程大作业的提交仓库：在 nesylink 环境之上实现了 NSI 神经符号 agent 与 Lean 形式化。
+
+```text
+nesylink/            环境包：引擎、任务、奖励、JSON 地图、Gymnasium wrapper
+nsi_agent/           NSI agent：VLM 感知（grounding/）、技能归纳（induction/）、符号规划与记忆
+lean/                Lean 4 形式化（cd lean && lake build）；定理列表见 lean/docs/
+docs/                环境文档；docs/Mathematical_logic/ 为大作业题目说明与参考示例
+submission_agent.py  测评入口：python utils/evaluate_policy.py --policy submission_agent.py
+REPORT.md            大作业技术报告
+test_generalization/ 泛化变体评测脚本与测试记录
+utils/               评测与人类游玩脚本
+data/                训练语料生成产物（体积大，不入 git）
+assets/              环境素材
+```
 
 ## 安装
 

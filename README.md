@@ -14,7 +14,24 @@
 
 `nesylink` provides a small, configurable dungeon game environment for RL experiments. It separates game mechanics, JSON maps, Python task specs, reward modules, and Gymnasium wrappers so users can start with built-in tasks or compose new environments without changing the core engine.
 
-> 对于 26 年春季数理逻辑课程的大作业设置，详情见 [数理逻辑大作业说明](docs/Mathematical_logic/readme.md)。
+> 对于 26 年春季数理逻辑课程的大作业设置，详情见 [数理逻辑大作业说明](docs/Mathematical_logic/README.md)。
+
+## Repository Layout
+
+This repository is also the submission for the Spring 2026 Mathematical Logic course project: an NSI neuro-symbolic agent and a Lean formalization built on top of the nesylink environment.
+
+```text
+nesylink/            environment package: engine, tasks, rewards, JSON maps, Gymnasium wrappers
+nsi_agent/           NSI agent: VLM grounding (grounding/), skill induction (induction/), symbolic planning
+lean/                Lean 4 formalization (cd lean && lake build); theorem lists in lean/docs/
+docs/                environment docs; docs/Mathematical_logic/ holds the course assignment spec
+submission_agent.py  evaluation entry: python utils/evaluate_policy.py --policy submission_agent.py
+REPORT.md            course project technical report
+test_generalization/ generalization-variant evaluation scripts and logs
+utils/               evaluation and human-play scripts
+data/                generated training corpora (large, git-ignored)
+assets/              environment assets
+```
 
 ## Installation
 

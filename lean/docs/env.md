@@ -190,10 +190,10 @@ earlier draft. The honest claim is:
 
 ## How to Check
 
-The repository includes [lean-toolchain](C:/Users/zhangw17/Documents/GitHub/Mathematical-logic-project/lean-toolchain:1), so from the project root you can run:
+The repository includes a [lean-toolchain](../lean-toolchain) pin (Lean 4.29.0). Build the whole formalization with Lake:
 
-```powershell
-lean lean\EnvFormalization.lean
+```bash
+cd lean && lake build
 ```
 
 The current file compiles successfully under Lean 4.29.0 and uses no `sorry`,
