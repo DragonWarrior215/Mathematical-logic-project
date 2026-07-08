@@ -31,6 +31,7 @@ class RoomMemory:
     failed_exits: dict[str, int] = field(default_factory=dict)  # dir -> fail count
     opened_exits: set[str] = field(default_factory=set)    # locks consumed (engine-confirmed)
     opened_chests: set[Tile] = field(default_factory=set)
+    pressed_buttons: set[Tile] = field(default_factory=set)  # engine-confirmed presses
     talked_npcs: set[Tile] = field(default_factory=set)
     switch_toggles: int = 0
 

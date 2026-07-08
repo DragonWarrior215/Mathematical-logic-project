@@ -379,11 +379,14 @@ class PressButton:
             ctx.tracker.request_perceive()
             return ("act", ACTION_NOOP)
         if state.tile(*self.target) == schema.TILE_BUTTON_PRESSED:
+            ctx.memory.room.pressed_buttons.add(self.target)
             return ("ok", self.target)
         if ctx.memory.button_press_events > self._press_baseline:
             # Engine-confirmed press via the reward channel. The visual
             # check above can never fire while we STAND on the button —
-            # the player sprite occludes the tile.
+            # the player sprite occludes the tile. Latch the fact so the
+            # planner never re-nominates a button perception misreads.
+            ctx.memory.room.pressed_buttons.add(self.target)
             return ("ok", self.target)
         if ctx.tracker.player_tile() == self.target:
             nudge = disambiguation_nudge(ctx)

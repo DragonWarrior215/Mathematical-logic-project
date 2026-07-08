@@ -190,6 +190,17 @@ class FallbackPlanner:
         if self.current is not None and self.current.skill != "kill_monster":
             self.current, self._skill = None, None
 
+    @staticmethod
+    def _unpressed_buttons(room, state) -> list[tuple[int, int]]:
+        """Buttons still worth pressing. Perception can misread a pressed
+        button as 'b' from a distance (and cannot see one under the player
+        sprite at all), so engine-confirmed presses recorded in
+        RoomMemory.pressed_buttons override the pixels."""
+        pressed = room.pressed_buttons if room is not None else frozenset()
+        return [
+            t for t in state.tiles_of(schema.TILE_BUTTON) if t not in pressed
+        ]
+
     def _should_interrupt_for_combat(self, ctx: Ctx) -> bool:
         if not ctx.inventory.has_sword or not ctx.tracker.monsters:
             return False
@@ -504,7 +515,7 @@ class FallbackPlanner:
                 key, "open_chest", {"target": chest}
             )))
 
-        for button in state.tiles_of(schema.TILE_BUTTON):
+        for button in self._unpressed_buttons(ctx.memory.room, state):
             key = ("button", coord, button)
             if not self._cooled(ctx, key):
                 continue
@@ -632,7 +643,7 @@ class FallbackPlanner:
             score = min(score, -220)
         for chest in state.closed_chests():
             score = min(score, self._task5_chest_score(ctx, state.tile(*chest)))
-        if state.tiles_of(schema.TILE_BUTTON):
+        if self._unpressed_buttons(room, state):
             score = min(score, self._task5_button_score(ctx, coord))
         for direction, exit_state in state.exits.items():
             if exit_state != "-" and _shift(coord, direction) not in ctx.memory.rooms:
@@ -690,7 +701,7 @@ class FallbackPlanner:
         if room is None or room.state is None:
             return True
         state = room.state
-        if state.closed_chests() or state.tiles_of(schema.TILE_BUTTON):
+        if state.closed_chests() or self._unpressed_buttons(room, state):
             return True
         for direction, exit_state in state.exits.items():
             if exit_state == "-":
@@ -764,7 +775,7 @@ class FallbackPlanner:
             return None
         here = ctx.tracker.player_tile()
         best: tuple[int, tuple[int, int]] | None = None
-        for button in state.tiles_of(schema.TILE_BUTTON):
+        for button in self._unpressed_buttons(ctx.memory.room, state):
             key = ("button", coord, button)
             if not self._cooled(ctx, key):
                 continue
@@ -868,7 +879,7 @@ class FallbackPlanner:
         state = room.state
         if state.closed_chests():
             return True
-        if state.tiles_of(schema.TILE_BUTTON):
+        if self._unpressed_buttons(room, state):
             return True
         for direction, exit_state in state.exits.items():
             if exit_state == "locked" and ctx.inventory.keys > 0 \
@@ -1106,7 +1117,7 @@ class FallbackPlanner:
             score = min(score, 0)
         for chest in state.closed_chests():
             score = min(score, 10 + 10 * self._chest_value_rank(ctx, state.tile(*chest)))
-        if state.tiles_of(schema.TILE_BUTTON):
+        if self._unpressed_buttons(room, state):
             score = min(score, 20)
         for direction, exit_state in state.exits.items():
             target = _shift(coord, direction)
