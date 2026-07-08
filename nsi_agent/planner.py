@@ -91,6 +91,12 @@ class FallbackPlanner:
     task5_phase: str = T5_NEED_KEY
     task5_ever_had_key: bool = False
     task5_unlocked: bool = False
+    task5_origin_room: Coord | None = None
+    task5_key_source_room: Coord | None = None
+    task5_heal_rooms: set[Coord] = field(default_factory=set)
+    task5_south_key_absent: bool = False
+    task5_last_coord: Coord | None = None
+    task5_returned_origin_without_key: bool = False
 
     # ------------------------------------------------------------------
 
@@ -107,6 +113,12 @@ class FallbackPlanner:
         self.task5_phase = T5_NEED_KEY
         self.task5_ever_had_key = False
         self.task5_unlocked = False
+        self.task5_origin_room = None
+        self.task5_key_source_room = None
+        self.task5_heal_rooms.clear()
+        self.task5_south_key_absent = False
+        self.task5_last_coord = None
+        self.task5_returned_origin_without_key = False
 
     def step(self, ctx: Ctx) -> int:
         self.stale_rooms.discard(ctx.memory.current_coord)
@@ -115,9 +127,28 @@ class FallbackPlanner:
         # deserve another try (probe goal keys embed the key count too).
         keys = ctx.inventory.keys
         if keys > getattr(self, "_last_keys", 0):
+            if self._task5(ctx):
+                self.task5_key_source_room = ctx.memory.current_coord
             for room in ctx.memory.rooms.values():
                 room.probed_dirs.clear()
         self._last_keys = keys
+        if self._task5(ctx) and self.task5_origin_room is None:
+            self.task5_origin_room = ctx.memory.current_coord
+        if self._task5(ctx):
+            previous = self.task5_last_coord
+            current = ctx.memory.current_coord
+            if (
+                self.task5_origin_room is not None
+                and previous is not None
+                and previous != current
+                and current == self.task5_origin_room
+                and previous != self.task5_origin_room
+                and ctx.inventory.keys <= 0
+                and not self.task5_ever_had_key
+            ):
+                self.task5_returned_origin_without_key = True
+                self.task5_south_key_absent = True
+            self.task5_last_coord = current
         self._update_task5_phase(ctx)
 
         if self._should_interrupt_for_combat(ctx):
@@ -201,13 +232,47 @@ class FallbackPlanner:
             t for t in state.tiles_of(schema.TILE_BUTTON) if t not in pressed
         ]
 
+    @staticmethod
+    def _unopened_chests(room, state) -> list[tuple[int, int]]:
+        """Chests still worth opening. Chest opening is irreversible, so
+        engine-confirmed opens (RoomMemory.opened_chests, written by the
+        OpenChest skill) override any distant misread of an opened chest
+        as closed — phantom chest work would otherwise attract routing."""
+        opened = room.opened_chests if room is not None else frozenset()
+        return [t for t in state.closed_chests() if t not in opened]
+
     def _should_interrupt_for_combat(self, ctx: Ctx) -> bool:
         if not ctx.inventory.has_sword or not ctx.tracker.monsters:
             return False
         if self.current is not None and self.current.skill == "kill_monster":
             return False
         px, py = ctx.tracker.player_px
-        return ctx.tracker.monster_clearance_px(px, py) < THREAT_CLEARANCE_PX
+        clearance = ctx.tracker.monster_clearance_px(px, py)
+        if (
+            self._task5(ctx)
+            and self.current is not None
+            and self.current.skill == "use_exit"
+            and self.task5_phase == T5_CLEANUP
+            and (ctx.memory.hp_estimate <= 2 or ctx.memory.step_count >= 850)
+        ):
+            return clearance < 0.6 * TILE_SIZE
+        if (
+            self._task5(ctx)
+            and self.current is not None
+            and self.current.skill == "use_exit"
+            and self.task5_phase == T5_NEED_KEY
+            and (ctx.memory.hp_estimate <= 2 or ctx.memory.step_count >= 850)
+        ):
+            return clearance < 0.6 * TILE_SIZE
+        if (
+            self._task5(ctx)
+            and self.current is not None
+            and self.current.skill == "use_exit"
+            and self.task5_phase == T5_NEED_KEY
+            and self.task5_returned_origin_without_key
+        ):
+            return clearance < 0.6 * TILE_SIZE
+        return clearance < THREAT_CLEARANCE_PX
 
     def _cooled(self, ctx: Ctx, key: GoalKey) -> bool:
         return ctx.memory.step_count >= self.cooldowns.get(key, 0)
@@ -238,6 +303,11 @@ class FallbackPlanner:
                 flee = self._flee_tile(ctx, here)
                 if flee is not None:
                     return Goal(("flee", coord), "goto", {"target": flee, "max_steps": 200})
+
+        if self._task5(ctx):
+            goal = self._task5_no_key_room_return_goal(ctx, coord)
+            if goal is not None:
+                return goal
 
         # 1. Engage monsters when armed and they are close (chasers approach
         # on their own — waiting for them beats crossing the room), or when
@@ -387,6 +457,9 @@ class FallbackPlanner:
     def _update_task5_phase(self, ctx: Ctx) -> None:
         if not self._task5(ctx):
             return
+        for coord, room in ctx.memory.rooms.items():
+            if room.state is not None and room.state.tiles_of(schema.TILE_CHEST_HEAL):
+                self.task5_heal_rooms.add(coord)
         if ctx.inventory.keys > 0:
             self.task5_ever_had_key = True
             if not self.task5_unlocked:
@@ -404,6 +477,27 @@ class FallbackPlanner:
                 self.task5_phase = T5_NEED_HEAL
         if self.task5_unlocked and self._heal_has_been_collected(ctx):
             self.task5_phase = T5_CLEANUP
+
+    def _task5_no_key_room_return_goal(self, ctx: Ctx, coord: Coord) -> Goal | None:
+        state = ctx.state
+        origin = self.task5_origin_room
+        if state is None or origin is None or coord == origin:
+            return None
+        if self.task5_phase != T5_NEED_KEY or ctx.inventory.keys > 0:
+            return None
+        if state.tiles_of(schema.TILE_CHEST_KEY, schema.TILE_CHEST_UNKNOWN):
+            return None
+        if self._unopened_chests(ctx.memory.room, state) \
+                or self._unpressed_buttons(ctx.memory.room, state):
+            return None
+        hop = self._first_hop(ctx, origin)
+        if hop is None:
+            return None
+        self.task5_south_key_absent = True
+        key = ("task5_south_no_key_return", coord, ctx.inventory.keys)
+        if self._cooled(ctx, key):
+            return Goal(key, "use_exit", {"direction": hop})
+        return None
 
     def _task5_stage_goal(
         self,
@@ -426,12 +520,32 @@ class FallbackPlanner:
             if goal is not None:
                 return goal
 
+        if (
+            ctx.inventory.keys > 0
+            and coord == self.task5_origin_room
+            and not self.task5_returned_origin_without_key
+        ):
+            goal = self._task5_pre_unlock_origin_chest_goal(ctx, here)
+            if goal is not None:
+                return goal
+
+        if ctx.inventory.keys > 0 and coord == self._task5_locked_exit_room(ctx):
+            goal = self._task5_pre_unlock_detour_chest_goal(ctx, here)
+            if goal is not None:
+                return goal
+
         if ctx.inventory.keys > 0:
+            goal = self._task5_key_escape_goal(ctx, here)
+            if goal is not None:
+                return goal
             goal = self._task5_global_goal(ctx, here)
             if goal is not None:
                 return goal
 
         if ctx.inventory.keys > 0:
+            goal = self._locked_exit_goal(ctx, coord)
+            if goal is not None:
+                return goal
             max_rank = 1 if ctx.memory.hp_estimate <= 3 else None
             chest = self._best_reachable_chest(ctx, here, max_rank=max_rank)
             if chest is not None:
@@ -452,10 +566,27 @@ class FallbackPlanner:
             return self._route_goal(ctx, here)
 
         max_rank = None
-        if self.task5_phase == T5_NEED_KEY:
-            # Low-value chests (gold) are cleanup work: opening them before
-            # the key burns the HP/time budget that variant maps make tight.
+        origin = self.task5_origin_room
+        if self.task5_phase == T5_NEED_KEY and coord != origin:
             max_rank = 3
+        if self.task5_phase == T5_NEED_KEY and coord == origin \
+                and self.task5_south_key_absent:
+            return self._route_goal(ctx, here)
+        if (
+            self.task5_phase == T5_NEED_KEY
+            and coord == origin
+            and not self.task5_returned_origin_without_key
+            and ctx.inventory.keys <= 0
+            and not ctx.state.tiles_of(schema.TILE_CHEST_KEY, schema.TILE_CHEST_UNKNOWN)
+            and self._task5_origin_chest_is_expensive(ctx, here)
+        ):
+            for goal in (
+                self._button_goal(ctx, coord),
+                self._route_goal(ctx, here),
+                self._conditional_exit_goal(ctx, coord),
+            ):
+                if goal is not None:
+                    return goal
         chest = self._best_reachable_chest(ctx, here, max_rank=max_rank)
         if chest is not None:
             key = ("chest", coord, chest)
@@ -467,6 +598,191 @@ class FallbackPlanner:
             return goal
         return self._route_goal(ctx, here)
 
+    def _task5_key_escape_goal(self, ctx: Ctx, here: tuple[int, int]) -> Goal | None:
+        coord = ctx.memory.current_coord
+        if ctx.inventory.keys > 0:
+            goal = self._locked_exit_goal(ctx, coord)
+            if goal is not None:
+                return goal
+            target = self._task5_locked_exit_room(ctx)
+            if target is not None and target != coord:
+                hop = self._first_hop(ctx, target)
+                if hop is not None:
+                    key = ("task5_key_escape_locked", coord, target, hop, ctx.inventory.keys)
+                    if self._cooled(ctx, key):
+                        return Goal(key, "use_exit", {"direction": hop})
+            return None
+            if self.task5_unlocked:
+                return self._heal_goal(ctx, here)
+        return None
+
+    def _task5_origin_chest_is_expensive(
+        self,
+        ctx: Ctx,
+        here: tuple[int, int],
+    ) -> bool:
+        state = ctx.state
+        if state is None:
+            return False
+        costs: list[int] = []
+        for chest in self._unopened_chests(ctx.memory.room, state):
+            if state.tile(*chest) in {schema.TILE_CHEST_KEY, schema.TILE_CHEST_UNKNOWN}:
+                return False
+            goals = {t for t in _adjacent(chest) if walkable(ctx, t)}
+            path = bfs_path(ctx, here, goals, avoid_monsters=False)
+            if path is not None:
+                costs.append(len(path))
+        return bool(costs) and min(costs) >= 6
+
+    def _task5_pre_unlock_slack(self, ctx: Ctx) -> int:
+        if ctx.memory.step_count >= 700 or ctx.memory.hp_estimate <= 2:
+            return 10
+        if ctx.memory.step_count >= 550 or ctx.memory.hp_estimate <= 3:
+            return 18
+        return 32
+
+    def _task5_locked_exit_goals(
+        self,
+        ctx: Ctx,
+        here: tuple[int, int],
+    ) -> tuple[int | None, set[tuple[int, int]]]:
+        state = ctx.state
+        if state is None:
+            return None, set()
+        exit_goals: set[tuple[int, int]] = set()
+        direct_costs: list[int] = []
+        for direction, exit_state in state.exits.items():
+            if exit_state != "locked" \
+                    or direction in ctx.memory.room.opened_exits:
+                continue
+            goals = {t for t in EXIT_TILES[direction] if walkable(ctx, t)}
+            path = bfs_path(ctx, here, goals, avoid_monsters=False)
+            if path is not None:
+                direct_costs.append(len(path))
+                exit_goals.update(goals)
+        if not direct_costs or not exit_goals:
+            return None, set()
+        return min(direct_costs), exit_goals
+
+    def _task5_chest_detour_to_goals(
+        self,
+        ctx: Ctx,
+        here: tuple[int, int],
+        chest: tuple[int, int],
+        exit_goals: set[tuple[int, int]],
+    ) -> int | None:
+        approach_goals = {t for t in _adjacent(chest) if walkable(ctx, t)}
+        path_to_chest = bfs_path(ctx, here, approach_goals, avoid_monsters=False)
+        if path_to_chest is None:
+            return None
+        tail_costs = [
+            len(path)
+            for adj in approach_goals
+            for path in [bfs_path(ctx, adj, exit_goals, avoid_monsters=False)]
+            if path is not None
+        ]
+        if not tail_costs:
+            return None
+        return len(path_to_chest) + min(tail_costs)
+
+    def _task5_pre_unlock_origin_chest_goal(
+        self,
+        ctx: Ctx,
+        here: tuple[int, int],
+    ) -> Goal | None:
+        state = ctx.state
+        coord = ctx.memory.current_coord
+        if state is None:
+            return None
+        direct, exit_goals = self._task5_locked_exit_goals(ctx, here)
+        if direct is None:
+            return None
+        slack = self._task5_pre_unlock_slack(ctx)
+        best: tuple[int, tuple[int, int]] | None = None
+        for chest in self._unopened_chests(ctx.memory.room, state):
+            key = ("task5_pre_unlock_origin_chest", coord, chest, ctx.inventory.keys)
+            if not self._cooled(ctx, key):
+                continue
+            cls = state.tile(*chest)
+            detour = self._task5_chest_detour_to_goals(ctx, here, chest, exit_goals)
+            if detour is None:
+                continue
+            if cls in {schema.TILE_CHEST_KEY, schema.TILE_CHEST_UNKNOWN}:
+                candidate = (detour - 1000, chest)
+            else:
+                detour += 48
+                if detour > direct + slack:
+                    continue
+                candidate = (detour, chest)
+            if best is None or candidate < best:
+                best = candidate
+        if best is None:
+            return None
+        chest = best[1]
+        key = ("task5_pre_unlock_origin_chest", coord, chest, ctx.inventory.keys)
+        return Goal(key, "open_chest", {"target": chest})
+
+    def _task5_pre_unlock_detour_chest_goal(
+        self,
+        ctx: Ctx,
+        here: tuple[int, int],
+    ) -> Goal | None:
+        state = ctx.state
+        coord = ctx.memory.current_coord
+        if state is None:
+            return None
+        direct, exit_goals = self._task5_locked_exit_goals(ctx, here)
+        if direct is None:
+            return None
+        slack = self._task5_pre_unlock_slack(ctx)
+        best: tuple[int, tuple[int, int]] | None = None
+        for chest in self._unopened_chests(ctx.memory.room, state):
+            cls = state.tile(*chest)
+            if cls in {schema.TILE_CHEST_KEY, schema.TILE_CHEST_UNKNOWN}:
+                continue
+            key = ("task5_pre_unlock_detour_chest", coord, chest, ctx.inventory.keys)
+            if not self._cooled(ctx, key):
+                continue
+            detour = self._task5_chest_detour_to_goals(ctx, here, chest, exit_goals)
+            if detour is None:
+                continue
+            detour += 48
+            if detour <= direct + slack:
+                candidate = (detour, chest)
+                if best is None or candidate < best:
+                    best = candidate
+        if best is None:
+            return None
+        chest = best[1]
+        key = ("task5_pre_unlock_detour_chest", coord, chest, ctx.inventory.keys)
+        return Goal(key, "open_chest", {"target": chest})
+
+    def _task5_locked_exit_room(self, ctx: Ctx) -> Coord | None:
+        # Behavioral reconciliation (§6.1): a lock the engine confirmed
+        # consumed must not re-nominate its room — perception may keep
+        # misreading the opened door as locked, and with a non-consuming
+        # key this oscillates the escape goal until the drain kills us.
+        candidates = [
+            coord
+            for coord, room in ctx.memory.rooms.items()
+            if room.state is not None and any(
+                exit_state == "locked" and direction not in room.opened_exits
+                for direction, exit_state in room.state.exits.items()
+            )
+        ]
+        if not candidates:
+            return None
+        return min(candidates, key=lambda c: self._room_distance(ctx, c))
+
+    def _task5_need_key_origin_revisit(self, ctx: Ctx) -> bool:
+        return (
+            self._task5(ctx)
+            and self.task5_phase == T5_NEED_KEY
+            and self.task5_returned_origin_without_key
+            and self.task5_origin_room is not None
+            and ctx.memory.current_coord == self.task5_origin_room
+        )
+
     def _task5_global_goal(self, ctx: Ctx, here: tuple[int, int]) -> Goal | None:
         state = ctx.state
         if state is None:
@@ -476,12 +792,10 @@ class FallbackPlanner:
 
         # Holding a key is an expensive temporary capability in task 5: using
         # it on the east lock should outrank optional gold/button cleanup.
-        door_tiles: tuple[tuple[int, int], ...] | None = None
         for direction, exit_state in state.exits.items():
             if exit_state != "locked" or ctx.inventory.keys <= 0 \
                     or direction in ctx.memory.room.opened_exits:
                 continue
-            door_tiles = EXIT_TILES[direction]
             key = ("locked_exit", coord, direction, ctx.inventory.keys)
             if not self._cooled(ctx, key):
                 continue
@@ -492,7 +806,7 @@ class FallbackPlanner:
                 key, "use_exit", {"direction": direction}
             )))
 
-        for chest in state.closed_chests():
+        for chest in self._unopened_chests(ctx.memory.room, state):
             key = ("chest", coord, chest)
             if not self._cooled(ctx, key):
                 continue
@@ -501,16 +815,6 @@ class FallbackPlanner:
             if path is None:
                 continue
             score = self._task5_chest_score(ctx, state.tile(*chest)) + len(path)
-            if door_tiles is not None:
-                # Completion needs every chest opened eventually; a chest
-                # sitting (almost) on the way to the locked door is nearly
-                # free now (<=3 tiles of detour) but costs a dedicated
-                # return trip later.
-                approach = path[-1] if path else here
-                d_direct = min(_manhattan(here, t) for t in door_tiles)
-                d_via = len(path) + min(_manhattan(approach, t) for t in door_tiles)
-                if d_via - d_direct <= 4:
-                    score = min(score, -520 + (d_via - d_direct))
             candidates.append((score, Goal(
                 key, "open_chest", {"target": chest}
             )))
@@ -641,7 +945,7 @@ class FallbackPlanner:
             for direction, exit_state in state.exits.items()
         ):
             score = min(score, -220)
-        for chest in state.closed_chests():
+        for chest in self._unopened_chests(room, state):
             score = min(score, self._task5_chest_score(ctx, state.tile(*chest)))
         if self._unpressed_buttons(room, state):
             score = min(score, self._task5_button_score(ctx, coord))
@@ -676,9 +980,16 @@ class FallbackPlanner:
         return self._route_goal(ctx, here)
 
     def _heal_has_been_collected(self, ctx: Ctx) -> bool:
-        # Reward feedback marks heal pickups exactly (map-agnostic); the
-        # room-coordinate heuristic it replaces broke on shifted layouts.
-        return ctx.memory.heal_events > 0
+        for coord in list(self.task5_heal_rooms):
+            room = ctx.memory.rooms.get(coord)
+            if room is None:
+                continue
+            state = room.state
+            if state is None:
+                continue
+            if not state.tiles_of(schema.TILE_CHEST_HEAL):
+                return True
+        return False
 
     def _pre_unlock_cleanup_goal(self, ctx: Ctx, coord: Coord) -> Goal | None:
         state = ctx.state
@@ -701,7 +1012,7 @@ class FallbackPlanner:
         if room is None or room.state is None:
             return True
         state = room.state
-        if state.closed_chests() or self._unpressed_buttons(room, state):
+        if self._unopened_chests(room, state) or self._unpressed_buttons(room, state):
             return True
         for direction, exit_state in state.exits.items():
             if exit_state == "-":
@@ -835,11 +1146,10 @@ class FallbackPlanner:
         here: tuple[int, int],
         *,
         max_rank: int | None = None,
-        max_path: int | None = None,
     ):
         state = ctx.state
         best, best_score = None, None
-        for chest in state.closed_chests():
+        for chest in self._unopened_chests(ctx.memory.room, state):
             key = ("chest", ctx.memory.current_coord, chest)
             if not self._cooled(ctx, key):
                 continue
@@ -849,8 +1159,6 @@ class FallbackPlanner:
             goals = {t for t in _adjacent(chest) if walkable(ctx, t)}
             path = bfs_path(ctx, here, goals, avoid_monsters=False)
             if path is None:
-                continue
-            if max_path is not None and len(path) > max_path:
                 continue
             score = 10 * rank + len(path)
             if best_score is None or score < best_score:
@@ -877,7 +1185,7 @@ class FallbackPlanner:
         if coord in self.stale_rooms:
             return True
         state = room.state
-        if state.closed_chests():
+        if self._unopened_chests(room, state):
             return True
         if self._unpressed_buttons(room, state):
             return True
@@ -920,7 +1228,7 @@ class FallbackPlanner:
         # A far-away monster (patroller) still must die if it blocks work:
         # any closed chest whose approach passes through its territory.
         state = ctx.state
-        for chest in state.closed_chests():
+        for chest in self._unopened_chests(ctx.memory.room, state):
             goals = {t for t in _adjacent(chest) if walkable(ctx, t)}
             if goals and bfs_path(ctx, here, goals) is None \
                     and bfs_path(ctx, here, goals, avoid_monsters=False) is not None:
@@ -998,7 +1306,7 @@ class FallbackPlanner:
 
         blocked = any(
             not any(t in reach for t in _adjacent(chest))
-            for chest in state.closed_chests()
+            for chest in self._unopened_chests(ctx.memory.room, state)
         ) or any(
             exit_pending(direction, exit_state)
             and not any(t in reach for t in EXIT_TILES[direction])
@@ -1115,7 +1423,7 @@ class FallbackPlanner:
             for direction, exit_state in state.exits.items()
         ):
             score = min(score, 0)
-        for chest in state.closed_chests():
+        for chest in self._unopened_chests(room, state):
             score = min(score, 10 + 10 * self._chest_value_rank(ctx, state.tile(*chest)))
         if self._unpressed_buttons(room, state):
             score = min(score, 20)
@@ -1172,10 +1480,6 @@ def _adjacent(tile: tuple[int, int]):
         t for t in ((x, y - 1), (x, y + 1), (x - 1, y), (x + 1, y))
         if 0 <= t[0] < GRID_W and 0 <= t[1] < GRID_H
     ]
-
-
-def _manhattan(a: tuple[int, int], b: tuple[int, int]) -> int:
-    return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
 
 def _shift(coord: Coord, direction: str) -> Coord:
