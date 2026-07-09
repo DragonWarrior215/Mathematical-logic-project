@@ -19,6 +19,15 @@ _project_root = str(Path(__file__).resolve().parent.parent)
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
+import argparse
+import json
+import os
+from collections import Counter, deque
+
+import numpy as np
+
+import nesylink
+from nsi_agent.agent import OracleGrounding, Policy
 from nsi_agent.skills import GoToTile
 
 PANEL_WIDTH = 320
@@ -64,3 +73,143 @@ def format_goal(goal) -> str:
         return "(idle)"
     args = ", ".join(f"{k}={v}" for k, v in goal.args.items())
     return f"{goal.skill}({args})  key={goal.key}"
+
+
+class LogStream:
+    """Incremental reader over planner.goal_log / planner.diagnoses.
+
+    The planner instance is replaced on policy.reset(), so track its id and
+    restart the cursors when it changes."""
+
+    def __init__(self) -> None:
+        self._planner_id: int | None = None
+        self._n_goals = 0
+        self._n_diag = 0
+        self.entries: deque = deque(maxlen=LOG_KEEP)
+
+    def poll(self, planner) -> None:
+        if id(planner) != self._planner_id:
+            self._planner_id = id(planner)
+            self._n_goals = 0
+            self._n_diag = 0
+        goal_log = getattr(planner, "goal_log", [])
+        for step, kind, key in goal_log[self._n_goals:]:
+            self.entries.append((step, f"{kind} {key}", kind))
+        self._n_goals = len(goal_log)
+        diagnoses = getattr(planner, "diagnoses", [])
+        for key, payload in diagnoses[self._n_diag:]:
+            self.entries.append((None, f"diag {key}: {payload!r}", "diag"))
+        self._n_diag = len(diagnoses)
+
+
+class AgentSession:
+    """Env + policy rollout state for the observer window."""
+
+    def __init__(self, task_id: str, seed: int, backend: str,
+                 prefer_induced: bool) -> None:
+        self.task_id = task_id
+        self.seed = seed
+        self.env = nesylink.make_env(
+            task_id=task_id, api="gym",
+            observation_mode="pixels", render_mode="rgb_array",
+        )
+        if backend == "oracle":
+            grounding = OracleGrounding(self.env)
+        else:
+            from nsi_agent.agent import VLMGrounding
+            grounding = VLMGrounding()
+        self.policy = Policy(backend=grounding, prefer_induced=prefer_induced)
+        self.events: Counter = Counter()
+        self.history: deque = deque(maxlen=HISTORY_SIZE)
+        self.reset()
+
+    def reset(self) -> None:
+        self.policy.reset(seed=self.seed, task_id=self.task_id)
+        self.obs, self.info = self.env.reset(seed=self.seed)
+        self.events.clear()
+        self.history.clear()
+        self.steps = 0
+        self.total_reward = 0.0
+        self.terminated = False
+        self.truncated = False
+
+    @property
+    def done(self) -> bool:
+        return self.terminated or self.truncated
+
+    @property
+    def success(self) -> bool:
+        return bool(
+            self.info.get("game", {}).get("world_completed")
+            or self.info.get("terminal_reason") == "world_completed"
+        )
+
+    def step(self) -> None:
+        if self.done:
+            return
+        action = self.policy.act(self.obs, self.info)
+        step_count = self.info.get("episode", {}).get("step_count", self.steps)
+        (self.obs, reward, self.terminated,
+         self.truncated, self.info) = self.env.step(action)
+        self.steps += 1
+        self.total_reward += float(reward)
+        self.history.append((step_count, action, self.obs, self.info))
+        for record in self.info.get("events", {}).get("records", []):
+            name = record.get("name")
+            if name:
+                self.events[name] += 1
+
+    def summary(self) -> dict:
+        return {
+            "task_id": self.task_id,
+            "seed": self.seed,
+            "steps": self.steps,
+            "reward": round(self.total_reward, 3),
+            "success": self.success,
+            "terminal_reason": self.info.get("terminal_reason"),
+            "events": dict(sorted(self.events.items())),
+        }
+
+    def close(self) -> None:
+        self.env.close()
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Watch the NSI agent play with a human-play style window"
+    )
+    parser.add_argument("--task", type=str,
+                        default="mathematical_logic/task_1")
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--backend", choices=["oracle", "vlm"],
+                        default="oracle")
+    parser.add_argument("--fallback", action="store_true",
+                        help="force the hand-written planner")
+    parser.add_argument("--speed", type=float, default=1.0,
+                        choices=SPEED_LADDER)
+    parser.add_argument("--smoke", type=int, default=0, metavar="N",
+                        help="headless-friendly: run N steps then exit "
+                             "with a JSON summary")
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    if args.smoke:
+        os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    session = AgentSession(args.task, args.seed, args.backend,
+                           prefer_induced=not args.fallback)
+    stream = LogStream()
+    while not session.done and (not args.smoke or session.steps < args.smoke):
+        session.step()
+        stream.poll(session.policy.planner)
+        if not args.smoke:
+            break   # 交互渲染循环在 Task 4/5 中实现
+    summary = session.summary()
+    summary["log_entries"] = len(stream.entries)
+    print(json.dumps(summary, ensure_ascii=False))
+    session.close()
+
+
+if __name__ == "__main__":
+    main()
