@@ -1,7 +1,9 @@
 """Tests for utils/agent_play.py helpers and the GoToTile._path hook."""
 from nsi_agent.skills import GoToTile
 from nsi_agent.planner import Goal
-from utils.agent_play import SPEED_LADDER, StepPacer, extract_nav, format_goal
+from utils.agent_play import (
+    SPEED_LADDER, StepPacer, active_skill, extract_nav, format_goal,
+)
 
 
 def test_gototile_path_defaults_none():
@@ -55,3 +57,43 @@ def test_format_goal():
     goal = Goal(("chest", (0, 0), (3, 4)), "open_chest", {"target": (3, 4)})
     text = format_goal(goal)
     assert "open_chest" in text and "(3, 4)" in text
+
+
+def test_active_skill_fallback_planner():
+    nav = GoToTile()
+
+    class FakeFallback:
+        _skill = None
+
+    planner = FakeFallback()
+    assert active_skill(planner) is None
+    planner._skill = nav
+    assert active_skill(planner) is nav
+
+
+def test_active_skill_dsl_planner_layers():
+    nav = GoToTile()
+
+    class FakeInterp:
+        active_skill = None
+
+    class FakeDSL:
+        override = None
+        _recovery = None
+        interp = FakeInterp()
+
+    planner = FakeDSL()
+    assert active_skill(planner) is None          # idle interpreter
+    planner.interp.active_skill = nav
+    assert active_skill(planner) is nav           # program execution
+    override = GoToTile()
+    planner.override = override
+    assert active_skill(planner) is override      # guard preempts program
+
+    class FakeRecovery:
+        _skill = None
+
+    recovery = FakeRecovery()
+    recovery._skill = nav
+    planner._recovery = recovery
+    assert active_skill(planner) is nav           # recovery preempts all

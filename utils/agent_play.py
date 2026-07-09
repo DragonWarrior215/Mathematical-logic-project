@@ -76,6 +76,22 @@ def extract_nav(skill) -> GoToTile | None:
     return nav if isinstance(nav, GoToTile) else None
 
 
+def active_skill(planner):
+    """The skill instance currently driving actions, across planner kinds:
+    FallbackPlanner keeps it in `_skill`; DSLPlanner runs it from the
+    recovery planner, a reactive-guard override, or the program interpreter."""
+    recovery = getattr(planner, "_recovery", None)
+    if recovery is not None:
+        return getattr(recovery, "_skill", None)
+    override = getattr(planner, "override", None)
+    if override is not None:
+        return override
+    interp = getattr(planner, "interp", None)
+    if interp is not None and interp.active_skill is not None:
+        return interp.active_skill
+    return getattr(planner, "_skill", None)
+
+
 def format_goal(goal) -> str:
     if goal is None:
         return "(idle)"
@@ -310,10 +326,7 @@ def main() -> None:
         stream.poll(session.policy.planner)
 
         draw_game(display, session.env.render())
-        # DSLPlanner uses 'override', FallbackPlanner uses '_skill'
-        skill = (getattr(session.policy.planner, '_skill', None) or
-                 getattr(session.policy.planner, 'override', None))
-        if draw_overlay(display, skill):
+        if draw_overlay(display, active_skill(session.policy.planner)):
             overlay_frames += 1
         draw_panel(display, fonts, session, stream, pacer, paused)
         pygame.display.flip()
