@@ -208,6 +208,7 @@ class GoToTile:
     _last_sync_px: tuple[float, float] | None = None
     _moves_since_sync: int = 0
     _waypoint: Tile | None = None
+    _path: list[Tile] | None = None
     _bump_streak: int = 0
 
     def reset(self, ctx: Ctx, *, target: Tile, adjacent: bool = False,
@@ -222,6 +223,7 @@ class GoToTile:
         self._last_sync_px = None
         self._moves_since_sync = 0
         self._waypoint = None
+        self._path = None
         self._bump_streak = 0
 
     def _check_bump(self, ctx: Ctx) -> None:
@@ -289,6 +291,7 @@ class GoToTile:
                             avoid=self.avoid)
             if path is None:
                 return ("fail", ("no_path", self.target))
+        self._path = path
         waypoint = path[1] if len(path) > 1 else path[0]
         self._waypoint = waypoint
         action = move_toward_waypoint(ctx, waypoint)
