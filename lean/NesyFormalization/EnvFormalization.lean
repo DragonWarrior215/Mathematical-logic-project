@@ -29,8 +29,12 @@ import Std
 
 namespace EnvFormalization
 
+-- 基础环境定义部分
+
+/-- 格子坐标 `(x, y)`，对应 Python 中的 `GridPos`；Lean 只建模 10×8 地图格子层。 -/
 abbrev Position := Nat × Nat
 
+/-- 玩家和出口使用的四方向，对应 `constants.py` / `movement.py` 中的方向字符串。 -/
 inductive Direction where
   | up
   | down
@@ -38,6 +42,7 @@ inductive Direction where
   | right
   deriving Repr, DecidableEq, Inhabited, BEq
 
+/-- 环境动作空间，对应 Python 的 7 个动作：WAIT、四向移动、BUTTON_A、BUTTON_B。 -/
 inductive Action where
   | wait
   | up
@@ -48,6 +53,7 @@ inductive Action where
   | shieldB
   deriving Repr, DecidableEq, Inhabited, BEq
 
+/-- 宝箱 loot 的种类，对应 `interactions.py:apply_loot` 中的 `kind` 字段。 -/
 inductive LootKind where
   | key
   | gold
@@ -55,34 +61,40 @@ inductive LootKind where
   | item
   deriving Repr, DecidableEq, Inhabited, BEq
 
+/-- 地图陷阱类型，对应 `TrapState.trap_type`：尖刺直接重生，深渊带控制锁和延迟重生。 -/
 inductive TrapType where
   | spike
   | abyss
   deriving Repr, DecidableEq, Inhabited, BEq
 
+/-- 怪物 AI 类型，对应 `MonsterState.monster_type` 的追踪、巡逻、伏击三类。 -/
 inductive MonsterType where
   | chaser
   | patroller
   | ambusher
   deriving Repr, DecidableEq, Inhabited, BEq
 
+/-- 出口类型，对应 `ExitConfig.exit_type`：普通门、钥匙门和条件门。 -/
 inductive ExitType where
   | normal
   | lockedKey
   | conditional
   deriving Repr, DecidableEq, Inhabited, BEq
 
+/-- 动态对象在某格产生的地形语义，对应 Python 的 `dynamic_tiles` 字典值。 -/
 inductive DynamicTileKind where
   | none
   | gap
   | bridge
   deriving Repr, DecidableEq, Inhabited, BEq
 
+/-- 装备槽位，对应 Python `EquipmentSlot.A/B`。 -/
 inductive EquipSlot where
   | A
   | B
   deriving Repr, DecidableEq, Inhabited, BEq
 
+/-- 宝箱奖励配置；`itemName/toolName/equipSlot` 对应 Python item loot 的可选装备字段。 -/
 structure Loot where
   kind : LootKind
   amount : Nat := 1
@@ -91,6 +103,7 @@ structure Loot where
   equipSlot : Option EquipSlot := none
   deriving Repr, DecidableEq, Inhabited, BEq
 
+/-- 宝箱运行时状态，对应 Python `ChestState`，包含开启、可见和击败怪物后显示的条件。 -/
 structure Chest where
   chestId : String
   pos : Position
@@ -101,6 +114,7 @@ structure Chest where
   revealTriggerRoomId : Option String := none
   deriving Repr, DecidableEq, Inhabited, BEq
 
+/-- 陷阱运行时状态，对应 Python `TrapState`。 -/
 structure Trap where
   trapId : String
   pos : Position
@@ -112,12 +126,14 @@ structure Trap where
   isActive : Bool := true
   deriving Repr, DecidableEq, Inhabited, BEq
 
+/-- 踩踏式按钮状态，对应 Python `ButtonState`。 -/
 structure Button where
   buttonId : String
   pos : Position
   isPressed : Bool := false
   deriving Repr, DecidableEq, Inhabited, BEq
 
+/-- 可交互开关；在 Python 中由 switch 对象和 `switch_effects` 共同描述。 -/
 structure Switch where
   switchId : String
   pos : Position
@@ -126,12 +142,14 @@ structure Switch where
   order : List String
   deriving Repr, DecidableEq, Inhabited, BEq
 
+/-- NPC 阻挡格和对话文本，对应 Python `NPCState`。 -/
 structure NPC where
   npcId : String
   pos : Position
   text : String
   deriving Repr, DecidableEq, Inhabited, BEq
 
+/-- 怪物运行时状态；Lean 将 Python 的像素位置和碰撞盒抽象为单个格子坐标。 -/
 structure Monster where
   monsterId : String
   pos : Position
@@ -146,6 +164,7 @@ structure Monster where
   stunTicksRemaining : Nat := 0
   deriving Repr, DecidableEq, Inhabited, BEq
 
+/-- 出口配置和运行时状态的合并模型；`unlocked` 折叠了 Python `ExitRuntimeState`。 -/
 structure Exit where
   exitId : String
   direction : Direction
@@ -162,11 +181,13 @@ structure Exit where
   targetEntry : String := "default"
   deriving Repr, DecidableEq, Inhabited, BEq
 
+/-- 动态对象的一个状态及其覆盖格子，对应 `DynamicObjectStateConfig`。 -/
 structure DynamicObjectState where
   stateId : String
   tiles : List Position
   deriving Repr, DecidableEq, Inhabited, BEq
 
+/-- 动态机关配置和当前状态；主要对应 Python 的 `DynamicObjectConfig` 和 `dynamic_states`。 -/
 structure DynamicObject where
   objectId : String
   kind : String := "rotating_bridge"
@@ -177,6 +198,7 @@ structure DynamicObject where
   currentState : String
   deriving Repr, DecidableEq, Inhabited, BEq
 
+/-- 单房间运行时状态，对应 Python `RoomState`；字典结构在 Lean 中用列表表达。 -/
 structure RoomState where
   roomId : String
   walls : List Position
@@ -192,6 +214,7 @@ structure RoomState where
   defaultSpawn : Position
   deriving Repr, DecidableEq, Inhabited, BEq
 
+/-- 整个环境运行时状态，对应 Python runtime 中玩家状态、当前房间和跨房间地图状态的组合。 -/
 structure WorldState where
   player : Position
   facing : Direction
@@ -213,6 +236,8 @@ structure WorldState where
   currentRoomIdx : Nat := 0
   worldCompletionViaExit : Bool := true
   deriving Repr, DecidableEq, Inhabited, BEq
+
+-- 简单辅助函数
 
 def containsPos (ps : List Position) (p : Position) : Bool :=
   ps.any (fun q => q == p)
@@ -263,9 +288,13 @@ def currentRoom (w : WorldState) : RoomState :=
 def setCurrentRoom (w : WorldState) (room : RoomState) : WorldState :=
   { w with rooms := replaceAt w.rooms w.currentRoomIdx room }
 
+-- wellformed 地图 相关定义
+
+/-- 地图边界，来自 Python `GRID_WIDTH = 10` 与 `GRID_HEIGHT = 8`。 -/
 def InBounds (p : Position) : Prop :=
   p.1 < 10 ∧ p.2 < 8
 
+/-- `InBounds` 的布尔版本，用在可执行转移函数中。 -/
 def inBounds (p : Position) : Bool :=
   decide (p.1 < 10) && decide (p.2 < 8)
 
@@ -280,6 +309,7 @@ def Adjacent (a b : Position) : Prop :=
 def adjacent (a b : Position) : Bool :=
   decide (manhattan a b ≤ 1)
 
+/-- 单步格子移动目标；Lean 使用 `Nat`，所以越过 0 的方向会饱和到 0。 -/
 def facingTile (p : Position) (d : Direction) : Position :=
   match d with
   | .up => (p.1, p.2 - 1)
@@ -294,6 +324,7 @@ def actionDirection? : Action → Option Direction
   | .right => some .right
   | _ => none
 
+/-- 将 `target_entry` 名称解析为入口方向，对应 Python `direction_from_entry_name`。 -/
 def entryDirection? (entry : String) : Option Direction :=
   let normalized := entry.trimAscii.toString.toLower
   if normalized == "north" || normalized == "from_north" || normalized == "north_entry" then
@@ -307,6 +338,7 @@ def entryDirection? (entry : String) : Option Direction :=
   else
     none
 
+/-- 每个入口方向的候选出生格，对应 Python `ENTRY_SPAWN_TILE_CANDIDATES`。 -/
 def entrySpawnCandidates (d : Direction) : List Position :=
   match d with
   | .up => [(4, 1), (5, 1)]
@@ -320,6 +352,7 @@ def firstOpenEntrySpawn? (r : RoomState) (d : Direction) : Option Position :=
 def stateContains (st : DynamicObjectState) (p : Position) : Bool :=
   containsPos st.tiles p
 
+/-- 计算某格当前的动态地形，对应 Python `RoomState.rebuild_dynamic_tiles` 的查询结果。 -/
 def dynamicTileAt (r : RoomState) (p : Position) : DynamicTileKind :=
   match r.dynamicObjects.find? (fun obj =>
       obj.states.any (fun st => st.stateId == obj.currentState && stateContains st p)) with
@@ -330,38 +363,46 @@ def dynamicTileAt (r : RoomState) (p : Position) : DynamicTileKind :=
       | some obj => obj.backgroundTile
       | none => .none
 
+/-- 查询激活陷阱；与 Python `RoomState.trap_at` 一样，桥覆盖时下方陷阱不触发。 -/
 def trapAt? (r : RoomState) (p : Position) : Option Trap :=
   if dynamicTileAt r p == .bridge then
     none
   else
     r.traps.find? (fun t => t.isActive && t.pos == p)
 
+/-- 查询玩家脚下按钮，对应 Python `RoomState.button_at`。 -/
 def buttonAt? (r : RoomState) (p : Position) : Option Button :=
   r.buttons.find? (fun b => b.pos == p)
 
+/-- 查询当前位置和方向上的出口，对应 Python `RoomState.exit_at`。 -/
 def exitAt? (r : RoomState) (p : Position) (d : Direction) : Option Exit :=
   r.exits.find? (fun e => e.direction == d && containsPos e.tiles p)
 
+/-- 运行时阻挡格：墙、可见宝箱、NPC 和动态 gap，对应 Python `runtime_blocking_tiles`。 -/
 def isBlocking (r : RoomState) (p : Position) : Bool :=
   containsPos r.walls p ||
     r.chests.any (fun c => c.isVisible && c.pos == p) ||
     r.npcs.any (fun n => n.pos == p) ||
     dynamicTileAt r p == .gap
 
+/-- 玩家能否占据一个格子；抽象了 Python 像素 AABB 碰撞后的格子可达性。 -/
 def canOccupy (r : RoomState) (p : Position) : Bool :=
   inBounds p && !(isBlocking r p)
 
 def hasActiveTrapAt (r : RoomState) (p : Position) : Bool :=
   r.traps.any (fun t => t.isActive && t.pos == p)
 
+/-- 深渊重生候选格要求在界内、不阻挡且没有激活陷阱。 -/
 def safeRespawnTile (r : RoomState) (p : Position) : Bool :=
   inBounds p && !(isBlocking r p) && !hasActiveTrapAt r p
 
+/-- 具名出生点查询，缺省时退回房间默认出生点。 -/
 def respawnPos (r : RoomState) (spawnName : String) : Position :=
   match lookupAssoc? r.spawns spawnName with
   | some pos => pos
   | none => r.defaultSpawn
 
+/-- 深渊重生优先级，对应 Python `find_abyss_respawn_tile` 的 previous/四邻域/default 顺序。 -/
 def abyssRespawnPos (r : RoomState) (previous abyss : Position) : Position :=
   if previous != abyss && safeRespawnTile r previous then
     previous
@@ -388,6 +429,7 @@ def chestCount : List RoomState → Nat
 def allChestsOpened (w : WorldState) : Bool :=
   decide (0 < chestCount w.rooms) && allChestsOpenedRooms w.rooms
 
+/-- 出口条件判定，对应 Python `can_use_exit` 的 normal/locked_key/conditional 分支。 -/
 def exitConditionSatisfied (w : WorldState) (e : Exit) : Bool :=
   match e.exitType with
   | .normal => true
@@ -414,6 +456,7 @@ def exitConditionSatisfied (w : WorldState) (e : Exit) : Bool :=
       let keyOk := decide (e.requiresKeyCount ≤ w.keys)
       buttonOk && itemOk && monsterOk && keyOk
 
+/-- 任务完成谓词：出口完成优先，也支持“所有可见宝箱已打开”的任务模式。 -/
 def goalReached (w : WorldState) : Bool :=
   w.environmentCompleted || (!w.worldCompletionViaExit && allChestsOpened w)
 
@@ -436,6 +479,8 @@ def WellFormed (w : WorldState) : Prop :=
   !containsPos (currentRoom w).walls w.player ∧
   ∀ room ∈ w.rooms, roomWellFormed room
 
+-- 玩家交互相关定义
+
 def addItem (items : List String) (itemName : String) : List String :=
   if containsString items itemName then items else itemName :: items
 
@@ -450,12 +495,14 @@ def hasEquippedSword (w : WorldState) : Bool :=
 def hasEquippedShield (w : WorldState) : Bool :=
   w.equippedB == "shield"
 
+/-- 当前动作 pose 是否仍然有效，对应 Python `PlayerState.has_action_pose`。 -/
 def actionActive (w : WorldState) (itemName : String) : Bool :=
   w.actionItem == some itemName && decide (0 < w.actionTicksRemaining)
 
 def shieldActive (w : WorldState) : Bool :=
   actionActive w "shield"
 
+/-- 开始剑或盾动作，对应 Python `PlayerState.start_action`。 -/
 def startAction (w : WorldState) (itemName : String) (facing : Direction) (ticks : Nat) : WorldState :=
   { w with actionItem := some itemName, actionFacing := some facing, actionTicksRemaining := ticks }
 
@@ -480,6 +527,7 @@ def finalizePlayerActionState (w : WorldState) (actionStartedThisStep : Bool) : 
         else
           w
 
+/-- 应用宝箱奖励，对应 Python `interactions.py:apply_loot`。 -/
 def applyLoot (w : WorldState) (loot : Loot) : WorldState :=
   match loot.kind with
   | .key =>
@@ -527,6 +575,7 @@ def unlockMonsterGatedExits (exits : List Exit) : List Exit :=
   exits.map (fun e =>
     if e.requiresAllMonstersDefeated then { e with unlocked := true } else e)
 
+/-- 击败指定房间所有怪物后显示隐藏宝箱，对应 Python `reveal_chests_on_all_monsters_defeated`。 -/
 def revealMonsterTriggeredChests (rooms : List RoomState) (triggerRoomId : String) : List RoomState :=
   rooms.map (fun room =>
     { room with
@@ -547,6 +596,7 @@ def dynamicObjectById? : List RoomState → String → Option DynamicObject
       | some obj => some obj
       | none => dynamicObjectById? rest objectId
 
+/-- 更新跨房间动态对象状态，对应 Python `RoomState.set_dynamic_state` 后重建动态格。 -/
 def setDynamicObjectState (rooms : List RoomState) (objectId nextState : String) : List RoomState :=
   rooms.map (fun room =>
     { room with
@@ -556,6 +606,7 @@ def setDynamicObjectState (rooms : List RoomState) (objectId nextState : String)
           else
             obj) })
 
+/-- 根据开关给出的状态顺序取下一个状态，对应 Python `activate_switch` 的 cycle_state。 -/
 def nextStateInOrder? (order : List String) (current : String) : Option String :=
   match indexOfString? order current with
   | some idx =>
@@ -563,6 +614,7 @@ def nextStateInOrder? (order : List String) (current : String) : Option String :
       getAt? order nextIdx
   | none => none
 
+/-- 进入目标房间时的出生格选择，对应 Python `entry_spawn_tile`。 -/
 def entrySpawnPos (r : RoomState) (targetEntry : String) : Position :=
   match entryDirection? targetEntry with
   | some dir =>
@@ -615,11 +667,13 @@ def moveMonsterToward (r : RoomState) (occupied : List Position)
   | some nextPos => nextPos
   | none => current
 
+/-- 伏击怪的触发范围；这里用格子 Chebyshev 方形范围近似 Python 的像素距离逻辑。 -/
 def withinAmbushRange (monster player : Position) (radius : Nat) : Bool :=
   let dx := if monster.1 ≤ player.1 then player.1 - monster.1 else monster.1 - player.1
   let dy := if monster.2 ≤ player.2 then player.2 - monster.2 else monster.2 - player.2
   dx ≤ radius && dy ≤ radius
 
+/-- 巡逻怪的抽象巡逻点；Lean 以 spawn 为角点构造小矩形路径。 -/
 def monsterPatrolPoints (m : Monster) : List Position :=
   let x0 := m.spawnPos.1
   let y0 := m.spawnPos.2
@@ -650,6 +704,7 @@ def updateChaserLikeMonster (r : RoomState) (occupied : List Position)
     (m : Monster) (target : Position) : Monster :=
   { m with pos := moveMonsterToward r occupied m.pos target }
 
+/-- 单个怪物的格子级更新，对应 Python `update_monster_grid` 的符号抽象。 -/
 def updateMonster (r : RoomState) (playerPos : Position) (occupied : List Position) (m : Monster) : Monster :=
   if 0 < m.stunTicksRemaining then
     { m with stunTicksRemaining := m.stunTicksRemaining - 1 }
@@ -679,6 +734,7 @@ def updateMonstersCurrentRoom (w : WorldState) : WorldState :=
   let updatedMonsters := updateMonstersList room w.player (room.monsters.map Monster.pos) room.monsters
   setCurrentRoom w { room with monsters := updatedMonsters }
 
+/-- 深渊下落后的控制锁推进；锁结束时把玩家放到 `pendingRespawn`。 -/
 def advanceControlLock (w : WorldState) : WorldState :=
   if w.controlLockStepsRemaining = 0 then
     w
@@ -696,6 +752,7 @@ def advanceControlLock (w : WorldState) : WorldState :=
       | none =>
           { w with controlLockStepsRemaining := 0 }
 
+/-- 尖刺陷阱伤害和重生，对应 Python `resolve_spike_trap`。 -/
 def resolveSpikeTrap (w : WorldState) (trap : Trap) : WorldState :=
   let room := currentRoom w
   let updatedRoom :=
@@ -712,6 +769,7 @@ def resolveSpikeTrap (w : WorldState) (trap : Trap) : WorldState :=
   let w1 := setCurrentRoom w updatedRoom
   { w1 with health := newHealth, player := newPlayer }
 
+/-- 深渊陷阱伤害、延迟重生和控制锁，对应 Python `resolve_abyss_trap`。 -/
 def resolveAbyssTrap (w : WorldState) (trap : Trap) (previous : Position) : WorldState :=
   let room := currentRoom w
   let updatedRoom :=
@@ -735,6 +793,7 @@ def resolveAbyssTrap (w : WorldState) (trap : Trap) (previous : Position) : Worl
         controlLockStepsRemaining := lockSteps
         pendingRespawn := some newPlayer }
 
+/-- 应用出口转移，对应 Python `apply_exit`，包括开锁、耗钥匙、换房和完成任务事件。 -/
 def applyExit (w : WorldState) (e : Exit) : WorldState :=
   let sourceRoom := currentRoom w
   let consumeNow := e.exitType == .lockedKey && !e.unlocked && e.consumeKey
@@ -767,6 +826,7 @@ def applyExit (w : WorldState) (e : Exit) : WorldState :=
           controlLockStepsRemaining := 0
           pendingRespawn := none }
 
+/-- 怪物死亡后的环境效果：移除怪物、加金币、解锁门、显示隐藏宝箱。 -/
 def onMonsterKilled (w : WorldState) (monster : Monster) : WorldState :=
   let room := currentRoom w
   let remaining := removeMonsterById room.monsters monster.monsterId
@@ -784,6 +844,7 @@ def onMonsterKilled (w : WorldState) (monster : Monster) : WorldState :=
   else
     w1
 
+/-- 交互开关触发动态对象状态轮换，对应 Python `activate_switch`。 -/
 def applySwitchToggle (w : WorldState) (sw : Switch) : WorldState :=
   let room := currentRoom w
   let w1 := setCurrentRoom w { room with switches := pressSwitchById room.switches sw.switchId }
@@ -794,6 +855,7 @@ def applySwitchToggle (w : WorldState) (sw : Switch) : WorldState :=
       | none => w1
   | none => w1
 
+/-- 怪物接触结算；Lean 用同格接触近似 Python 的 AABB overlap。 -/
 def resolveMonsterContact (w : WorldState) : WorldState :=
   match (currentRoom w).monsters.find? (fun m => m.pos == w.player && m.stunTicksRemaining = 0) with
   | some monster =>
@@ -806,6 +868,7 @@ def resolveMonsterContact (w : WorldState) : WorldState :=
         { w1 with health := w1.health - monster.damage }
   | none => w
 
+/-- 踩格效果：先按钮、后陷阱，对应 Python `resolve_tile_effects`。 -/
 def applyTileEffects (w previous : WorldState) : WorldState :=
   let room := currentRoom w
   let afterButton :=
@@ -826,6 +889,7 @@ def applyTileEffects (w previous : WorldState) : WorldState :=
     | none => afterButton
   afterTrap
 
+/-- 格子级移动，抽象 Python 的像素移动和 tile collision。 -/
 def basicMove (w : WorldState) (d : Direction) : WorldState :=
   let target := facingTile w.player d
   let turned := { w with facing := d }
@@ -834,6 +898,7 @@ def basicMove (w : WorldState) (d : Direction) : WorldState :=
   else
     turned
 
+/-- 移动动作加出口检查，对应 Python `handle_grid_move` 后接 `resolve_transition`。 -/
 def moveStep (w : WorldState) (d : Direction) : WorldState :=
   let moved := basicMove w d
   match exitAt? (currentRoom moved) moved.player d with
@@ -844,6 +909,7 @@ def moveStep (w : WorldState) (d : Direction) : WorldState :=
         moved
   | none => moved
 
+/-- BUTTON_A 交互优先级：宝箱、NPC、开关、剑攻击，对应 Python `try_interaction` 加装备触发。 -/
 def interactStep (w : WorldState) : WorldState × Bool :=
   let room := currentRoom w
   match room.chests.find? (fun c => c.isVisible && !c.isOpen && adjacent w.player c.pos) with
@@ -872,6 +938,7 @@ def interactStep (w : WorldState) : WorldState × Bool :=
                       (setCurrentRoom acting updatedRoom, true)
                 | none => (startAction w "sword" w.facing 6, true)
 
+/-- 单步动作分派：移动、A 交互/挥剑、B 举盾。 -/
 def actionStep (w : WorldState) (a : Action) : WorldState × Bool :=
   match a with
   | .wait => (w, false)
@@ -886,6 +953,7 @@ def actionStep (w : WorldState) (a : Action) : WorldState × Bool :=
       else
         (w, false)
 
+/-- 动作后的环境结算顺序：踩格效果、怪物更新、怪物接触。 -/
 def postActionResolve (before after : WorldState) (_a : Action) : WorldState :=
   let afterTiles :=
     if after.health = 0 then
@@ -897,6 +965,7 @@ def postActionResolve (before after : WorldState) (_a : Action) : WorldState :=
   else
     resolveMonsterContact (updateMonstersCurrentRoom afterTiles)
 
+/-- 完整环境步进；对应 Python engine 的 control-lock、死亡吸收、动作、环境结算、动作 pose 收尾。 -/
 def step (w : WorldState) (a : Action) : WorldState :=
   if w.controlLockStepsRemaining > 0 then
     advanceControlLock w
@@ -908,6 +977,15 @@ def step (w : WorldState) (a : Action) : WorldState :=
     let settled := postActionResolve w0 acted a
     finalizePlayerActionState settled actionStarted
 
+/-
+这一节给出环境语义上的一些基础性质定理，以及两个来自真实任务的具体 witness：
+
+1. 移动不会把玩家送到非法格子；
+2. 治疗、陷阱、桥、钥匙门、盾牌等机制满足直观的安全/一致性性质；
+3. `task1` 与 `task4` 的小型建模状态可作为后续定理和示例的具体实例。
+-/
+
+/-- 若某格被 `canOccupy` 判为可占据，则该格一定在地图边界内。 -/
 theorem inBounds_of_canOccupy {r : RoomState} {p : Position}
     (h : canOccupy r p = true) : InBounds p := by
   have hb : inBounds p = true := by
@@ -917,31 +995,37 @@ theorem inBounds_of_canOccupy {r : RoomState} {p : Position}
   simp at hb
   exact hb
 
+/-- 若朝向格不可占据，则 `basicMove` 不会改变玩家位置。 -/
 theorem blocked_basicMove_keeps_player {w : WorldState} {d : Direction}
     (h : canOccupy (currentRoom w) (facingTile w.player d) = false) :
     (basicMove w d).player = w.player := by
   simp [basicMove, h]
 
+/-- 若朝向格可占据，则 `basicMove` 会把玩家恰好移动到该格。 -/
 theorem free_basicMove_moves_player {w : WorldState} {d : Direction}
     (h : canOccupy (currentRoom w) (facingTile w.player d) = true) :
     (basicMove w d).player = facingTile w.player d := by
   simp [basicMove, h]
 
+/-- 成功的 `basicMove` 之后，玩家位置仍然在地图边界内。 -/
 theorem free_basicMove_stays_in_bounds {w : WorldState} {d : Direction}
     (h : canOccupy (currentRoom w) (facingTile w.player d) = true) :
     InBounds (basicMove w d).player := by
   rw [free_basicMove_moves_player h]
   exact inBounds_of_canOccupy h
 
+/-- 治疗型 loot 的效果不会把生命值恢复到 `maxHealth` 以上。 -/
 theorem heal_loot_preserves_max_health (w : WorldState) (n : Nat) :
     (applyLoot w { kind := .heal, amount := n }).health ≤ w.maxHealth := by
   simp [applyLoot]
   exact Nat.min_le_left _ _
 
+/-- 尖刺陷阱只会减少或保持生命值，不会让生命值上升。 -/
 theorem spike_trap_never_increases_health (w : WorldState) (trap : Trap) :
     (resolveSpikeTrap w trap).health ≤ w.health := by
   simp [resolveSpikeTrap]
 
+/-- 深渊陷阱同样只会减少或保持生命值，不会让生命值上升。 -/
 theorem abyss_trap_never_increases_health (w : WorldState) (trap : Trap) (previous : Position) :
     (resolveAbyssTrap w trap previous).health ≤ w.health := by
   by_cases hs : trap.singleUse
@@ -952,6 +1036,7 @@ theorem abyss_trap_never_increases_health (w : WorldState) (trap : Trap) (previo
     · simp [resolveAbyssTrap, hs, hh]
     · simp [resolveAbyssTrap, hs, hh]
 
+/-- 若某格当前被桥覆盖，则查询该格陷阱时必定得到 `none`。 -/
 theorem bridge_hides_trap {r : RoomState} {p : Position}
     (h : dynamicTileAt r p = .bridge) :
     trapAt? r p = none := by
@@ -961,6 +1046,7 @@ theorem bridge_hides_trap {r : RoomState} {p : Position}
   unfold trapAt?
   rw [if_pos hb]
 
+/-- 一个把 `sword` 指定为 `A` 槽装备的 item loot 会把 `equippedA` 设为 `"sword"`。 -/
 theorem sword_loot_equips_slotA (w : WorldState) :
     (applyLoot w
       { kind := .item
@@ -969,6 +1055,7 @@ theorem sword_loot_equips_slotA (w : WorldState) :
         equipSlot := some .A }).equippedA = "sword" := by
   simp [applyLoot, setEquippedSlot, addItem, containsString]
 
+/-- 对于未解锁的钥匙门，只要玩家钥匙数不足，出口条件就一定不满足。 -/
 theorem locked_exit_without_keys_denied (w : WorldState) (required : Nat)
     (h : w.keys < required) :
     exitConditionSatisfied w
@@ -978,12 +1065,14 @@ theorem locked_exit_without_keys_denied (w : WorldState) (required : Nat)
           requiresKeyCount := required } = false := by
   simp [exitConditionSatisfied, Nat.not_le_of_gt h]
 
+/-- 若任务模式允许“开完所有宝箱即完成”，则所有宝箱开启会推出 `goalReached`。 -/
 theorem goalReached_of_allChestsOpened {w : WorldState}
     (hExit : w.worldCompletionViaExit = false)
     (hChests : allChestsOpened w = true) :
     goalReached w = true := by
   simp [goalReached, hExit, hChests]
 
+/-- 通过一个 `completeTask` 出口后，环境完成标志会被置位，从而满足 `goalReached`。 -/
 theorem applyExit_completeTask_sets_goalReached (w : WorldState) (e : Exit) :
     e.completeTask = true →
     goalReached (applyExit w e) = true := by
@@ -991,156 +1080,165 @@ theorem applyExit_completeTask_sets_goalReached (w : WorldState) (e : Exit) :
   simp [goalReached, applyExit]
   split <;> simp [h]
 
+/-- 若玩家未装备盾牌，则按下 `BUTTON_B` 不会启动盾动作。 -/
 theorem shieldB_without_shield_does_not_raise (w : WorldState)
     (h : hasEquippedShield w = false) :
     actionStep w .shieldB = (w, false) := by
   simp [actionStep, h]
 
-def task1GoalRoom : RoomState :=
-  { roomId := "task1_goal"
-    walls := []
-    chests := []
-    traps := []
-    buttons := []
-    switches := []
-    npcs := []
-    monsters := []
-    exits := []
-    dynamicObjects := []
-    spawns := [("west", (1, 3)), ("default", (1, 3))]
-    defaultSpawn := (1, 3) }
+-- /-- `task1` 的目标房间 witness：出口进入后落在西侧出生点，房间内无额外机制。 -/
+-- def task1GoalRoom : RoomState :=
+--   { roomId := "task1_goal"
+--     walls := []
+--     chests := []
+--     traps := []
+--     buttons := []
+--     switches := []
+--     npcs := []
+--     monsters := []
+--     exits := []
+--     dynamicObjects := []
+--     spawns := [("west", (1, 3)), ("default", (1, 3))]
+--     defaultSpawn := (1, 3) }
 
-def task1Room : RoomState :=
-  { roomId := "task1_start"
-    walls := [(3, 0), (3, 1), (3, 2), (3, 5), (3, 6), (3, 7)]
-    chests := [{
-      chestId := "key_chest"
-      pos := (1, 3)
-      loot := { kind := .key, amount := 1 }
-    }]
-    traps := []
-    buttons := []
-    switches := []
-    npcs := []
-    monsters := []
-    exits := [{
-      exitId := "task1_exit"
-      direction := .right
-      tiles := [(9, 3), (9, 4)]
-      exitType := .lockedKey
-      requiresKeyCount := 1
-      consumeKey := true
-      unlocked := false
-      completeTask := true
-      targetRoomId := "task1_goal"
-      targetEntry := "west"
-    }]
-    dynamicObjects := []
-    spawns := [("default", (7, 3))]
-    defaultSpawn := (7, 3) }
+-- /-- `task1` 的起始房间 witness：一个钥匙宝箱加一个需要 1 把钥匙的完成型出口。 -/
+-- def task1Room : RoomState :=
+--   { roomId := "task1_start"
+--     walls := [(3, 0), (3, 1), (3, 2), (3, 5), (3, 6), (3, 7)]
+--     chests := [{
+--       chestId := "key_chest"
+--       pos := (1, 3)
+--       loot := { kind := .key, amount := 1 }
+--     }]
+--     traps := []
+--     buttons := []
+--     switches := []
+--     npcs := []
+--     monsters := []
+--     exits := [{
+--       exitId := "task1_exit"
+--       direction := .right
+--       tiles := [(9, 3), (9, 4)]
+--       exitType := .lockedKey
+--       requiresKeyCount := 1
+--       consumeKey := true
+--       unlocked := false
+--       completeTask := true
+--       targetRoomId := "task1_goal"
+--       targetEntry := "west"
+--     }]
+--     dynamicObjects := []
+--     spawns := [("default", (7, 3))]
+--     defaultSpawn := (7, 3) }
 
-def task1Init : WorldState :=
-  { player := (7, 3)
-    facing := .left
-    health := 5
-    maxHealth := 5
-    keys := 0
-    gold := 0
-    items := []
-    tools := []
-    equippedA := "none"
-    equippedB := "none"
-    actionItem := none
-    actionFacing := none
-    actionTicksRemaining := 0
-    controlLockStepsRemaining := 0
-    pendingRespawn := none
-    environmentCompleted := false
-    rooms := [task1Room, task1GoalRoom]
-    currentRoomIdx := 0
-    worldCompletionViaExit := true }
+-- /-- `task1` 的初始世界状态 witness，用于说明钥匙门任务的建模方式。 -/
+-- def task1Init : WorldState :=
+--   { player := (7, 3)
+--     facing := .left
+--     health := 5
+--     maxHealth := 5
+--     keys := 0
+--     gold := 0
+--     items := []
+--     tools := []
+--     equippedA := "none"
+--     equippedB := "none"
+--     actionItem := none
+--     actionFacing := none
+--     actionTicksRemaining := 0
+--     controlLockStepsRemaining := 0
+--     pendingRespawn := none
+--     environmentCompleted := false
+--     rooms := [task1Room, task1GoalRoom]
+--     currentRoomIdx := 0
+--     worldCompletionViaExit := true }
 
-def task4Bridge : DynamicObject :=
-  { objectId := "center_bridge"
-    initialState := "west_to_north"
-    states := [
-      { stateId := "west_to_north"
-        tiles := [(0, 3), (1, 3), (2, 3), (3, 3), (4, 3), (5, 3),
-                  (0, 4), (1, 4), (2, 4), (3, 4), (4, 4), (5, 4),
-                  (4, 0), (5, 0), (4, 1), (5, 1), (4, 2), (5, 2)] },
-      { stateId := "west_to_east"
-        tiles := [(0, 3), (1, 3), (2, 3), (3, 3), (4, 3), (5, 3), (6, 3), (7, 3), (8, 3), (9, 3),
-                  (0, 4), (1, 4), (2, 4), (3, 4), (4, 4), (5, 4), (6, 4), (7, 4), (8, 4), (9, 4)] },
-      { stateId := "west_to_south"
-        tiles := [(0, 3), (1, 3), (2, 3), (3, 3), (4, 3), (5, 3),
-                  (0, 4), (1, 4), (2, 4), (3, 4), (4, 4), (5, 4),
-                  (4, 5), (5, 5), (4, 6), (5, 6), (4, 7), (5, 7)] }
-    ]
-    backgroundTile := .none
-    activeTile := .bridge
-    currentState := "west_to_north" }
+-- /-- `task4` 中央旋转桥 witness：三种朝向分别通向北、东、南。 -/
+-- def task4Bridge : DynamicObject :=
+--   { objectId := "center_bridge"
+--     initialState := "west_to_north"
+--     states := [
+--       { stateId := "west_to_north"
+--         tiles := [(0, 3), (1, 3), (2, 3), (3, 3), (4, 3), (5, 3),
+--                   (0, 4), (1, 4), (2, 4), (3, 4), (4, 4), (5, 4),
+--                   (4, 0), (5, 0), (4, 1), (5, 1), (4, 2), (5, 2)] },
+--       { stateId := "west_to_east"
+--         tiles := [(0, 3), (1, 3), (2, 3), (3, 3), (4, 3), (5, 3), (6, 3), (7, 3), (8, 3), (9, 3),
+--                   (0, 4), (1, 4), (2, 4), (3, 4), (4, 4), (5, 4), (6, 4), (7, 4), (8, 4), (9, 4)] },
+--       { stateId := "west_to_south"
+--         tiles := [(0, 3), (1, 3), (2, 3), (3, 3), (4, 3), (5, 3),
+--                   (0, 4), (1, 4), (2, 4), (3, 4), (4, 4), (5, 4),
+--                   (4, 5), (5, 5), (4, 6), (5, 6), (4, 7), (5, 7)] }
+--     ]
+--     backgroundTile := .none
+--     activeTile := .bridge
+--     currentState := "west_to_north" }
 
-def task4Room : RoomState :=
-  { roomId := "task4_center"
-    walls := []
-    chests := [{
-      chestId := "final_chest"
-      pos := (4, 4)
-      loot := { kind := .gold, amount := 1 }
-      isVisible := false
-      revealOnAllMonstersDefeated := true
-      revealTriggerRoomId := some "south"
-    }]
-    traps := [{
-      trapId := "center_abyss"
-      pos := (4, 4)
-      trapType := .abyss
-      damage := 1
-      respawnTo := "default"
-      respawnDelaySteps := 2
-    }]
-    buttons := []
-    switches := [{
-      switchId := "switch_1"
-      pos := (2, 2)
-      targetObjectId := "center_bridge"
-      order := ["west_to_north", "west_to_east", "west_to_south"]
-    }]
-    npcs := []
-    monsters := []
-    exits := []
-    dynamicObjects := [task4Bridge]
-    spawns := [("default", (1, 4)), ("west_door", (1, 4)), ("east_door", (8, 4)),
-               ("from_north", (4, 1)), ("from_south", (4, 6))]
-    defaultSpawn := (1, 4) }
+-- /-- `task4` 中央房间 witness：包含中心深渊、控制桥的开关以及击败怪物后显示的最终宝箱。 -/
+-- def task4Room : RoomState :=
+--   { roomId := "task4_center"
+--     walls := []
+--     chests := [{
+--       chestId := "final_chest"
+--       pos := (4, 4)
+--       loot := { kind := .gold, amount := 1 }
+--       isVisible := false
+--       revealOnAllMonstersDefeated := true
+--       revealTriggerRoomId := some "south"
+--     }]
+--     traps := [{
+--       trapId := "center_abyss"
+--       pos := (4, 4)
+--       trapType := .abyss
+--       damage := 1
+--       respawnTo := "default"
+--       respawnDelaySteps := 2
+--     }]
+--     buttons := []
+--     switches := [{
+--       switchId := "switch_1"
+--       pos := (2, 2)
+--       targetObjectId := "center_bridge"
+--       order := ["west_to_north", "west_to_east", "west_to_south"]
+--     }]
+--     npcs := []
+--     monsters := []
+--     exits := []
+--     dynamicObjects := [task4Bridge]
+--     spawns := [("default", (1, 4)), ("west_door", (1, 4)), ("east_door", (8, 4)),
+--                ("from_north", (4, 1)), ("from_south", (4, 6))]
+--     defaultSpawn := (1, 4) }
 
-def task4Init : WorldState :=
-  { player := (1, 4)
-    facing := .right
-    health := 5
-    maxHealth := 5
-    keys := 0
-    gold := 0
-    items := ["shield"]
-    tools := ["shield"]
-    equippedA := "none"
-    equippedB := "shield"
-    actionItem := none
-    actionFacing := none
-    actionTicksRemaining := 0
-    controlLockStepsRemaining := 0
-    pendingRespawn := none
-    environmentCompleted := false
-    rooms := [task4Room]
-    currentRoomIdx := 0
-    worldCompletionViaExit := true }
+-- /-- `task4` 风格的初始世界状态 witness：玩家起手持盾，位于中心房间西侧。 -/
+-- def task4Init : WorldState :=
+--   { player := (1, 4)
+--     facing := .right
+--     health := 5
+--     maxHealth := 5
+--     keys := 0
+--     gold := 0
+--     items := ["shield"]
+--     tools := ["shield"]
+--     equippedA := "none"
+--     equippedB := "shield"
+--     actionItem := none
+--     actionFacing := none
+--     actionTicksRemaining := 0
+--     controlLockStepsRemaining := 0
+--     pendingRespawn := none
+--     environmentCompleted := false
+--     rooms := [task4Room]
+--     currentRoomIdx := 0
+--     worldCompletionViaExit := true }
 
-example : dynamicTileAt task4Room (8, 4) = .none := by
-  native_decide
+-- /-- 示例：当桥处于 `west_to_north` 状态时，东侧 `(8,4)` 不被桥覆盖。 -/
+-- example : dynamicTileAt task4Room (8, 4) = .none := by
+--   native_decide
 
-example : dynamicTileAt
-    ({ task4Room with
-        dynamicObjects := [{ task4Bridge with currentState := "west_to_east" }] }) (8, 4) = .bridge := by
-  native_decide
+-- /-- 示例：当桥旋转到 `west_to_east` 时，东侧 `(8,4)` 会变成可通行的桥格。 -/
+-- example : dynamicTileAt
+--     ({ task4Room with
+--         dynamicObjects := [{ task4Bridge with currentState := "west_to_east" }] }) (8, 4) = .bridge := by
+--   native_decide
 
 end EnvFormalization

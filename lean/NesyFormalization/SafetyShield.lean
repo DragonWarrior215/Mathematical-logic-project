@@ -1,16 +1,6 @@
-import NesyFormalization.MonsterDanger
+import NesyFormalization.NsiAgentFormalization
 
 namespace EnvFormalization
-
-/-- 移动动作的目标格子；对被动或非移动动作返回 `none`。 -/
-def actionTarget? (w : WorldState) : Action → Option Position
-  | .up => some (facingTile w.player .up)
-  | .down => some (facingTile w.player .down)
-  | .left => some (facingTile w.player .left)
-  | .right => some (facingTile w.player .right)
-  | .wait => none
-  | .interactA => none
-  | .shieldB => none
 
 /-- 若动作存在目标格子，且该格子位于已跟踪怪物危险区域之外，则动作安全。 -/
 def actionSafe (w : WorldState) (tracked : List TrackedMonster) (a : Action) : Prop :=
@@ -49,7 +39,7 @@ theorem shield_real_world_safe
       simp [hnone]
   | allowMove htarget hsafe =>
       simp [htarget]
-      exact monster_region_real_sound hregion hsafe
+      exact hregion _ hsafe
   | blockMove _ _ hfallbackNonMove =>
       simp [hfallbackNonMove]
 

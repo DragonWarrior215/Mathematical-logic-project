@@ -31,43 +31,4 @@ def ReachabilityFailureRequestsToggle
     (planner : Planner) (reachabilityFailed switchKnown : WorldState → Prop) : Prop :=
   ∀ w, reachabilityFailed w → switchKnown w → planner w = .toggle
 
-/-- `unarmed_threat_prefers_flee`：规划器优先级规格强制产生逃离目标。 -/
-theorem unarmed_threat_prefers_flee
-    {planner : Planner}
-    (hspec : UnarmedThreatPrefersFlee planner)
-    {w : WorldState}
-    (hnoSword : hasEquippedSword w = false)
-    (hmonsters : (currentRoom w).monsters ≠ []) :
-    planner w = .flee := by
-  exact hspec w hnoSword hmonsters
-
-/-- `armed_threat_prefers_combat`：规划器优先级规格强制产生战斗目标。 -/
-theorem armed_threat_prefers_combat
-    {planner : Planner}
-    (hspec : ArmedThreatPrefersCombat planner)
-    {w : WorldState}
-    (hsword : hasEquippedSword w = true)
-    (hmonsters : (currentRoom w).monsters ≠ []) :
-    planner w = .combat := by
-  exact hspec w hsword hmonsters
-
-/-- `idle_is_passive`：没有更高优先级工作时，规划器返回 idle 目标。 -/
-theorem idle_is_passive
-    {planner : Planner} {noHigherPriority : WorldState → Prop}
-    (hspec : IdleIsPassive planner noHigherPriority)
-    {w : WorldState}
-    (hnoGoal : noHigherPriority w) :
-    planner w = .idle := by
-  exact hspec w hnoGoal
-
-/-- `reachability_failure_requests_toggle`：可达性失败加已知开关会得到 toggle 目标。 -/
-theorem reachability_failure_requests_toggle
-    {planner : Planner} {reachabilityFailed switchKnown : WorldState → Prop}
-    (hspec : ReachabilityFailureRequestsToggle planner reachabilityFailed switchKnown)
-    {w : WorldState}
-    (hfail : reachabilityFailed w)
-    (hswitch : switchKnown w) :
-    planner w = .toggle := by
-  exact hspec w hfail hswitch
-
 end EnvFormalization
