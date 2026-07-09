@@ -18,7 +18,7 @@
 - 不得改动 `nsi_agent/agent.py` 的 `make_policy`(oracle 拒绝逻辑是评测约束)。
 - 面板宽 `PANEL_WIDTH = 320`;速度档位 `SPEED_LADDER = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0]`;日志保留 30 条。
 - 坐标换算:tile `(tx, ty)` → 窗口像素 `(tx*TILE_SIZE*WINDOW_SCALE, ty*TILE_SIZE*WINDOW_SCALE)`,无偏移(HUD 在画面底部)。
-- goal_log 条目为 `(step, kind, key)`,kind ∈ {"start", "ok", "fail"};diagnoses 条目为 `(key, payload)`。
+- goal_log 条目为 `(step, kind, key)`;FallbackPlanner 的 kind ∈ {"start", "ok", "fail"},DSLPlanner 另有 "node"/"restart"/"recovery_start"/"recovery_end"/"guard:*"/"terminal_fail" 等;染色规则采用 `"fail" in kind or kind == "diag"`。diagnoses 条目为 `(key, payload)`。
 
 ---
 

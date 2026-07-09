@@ -92,6 +92,25 @@ def active_skill(planner):
     return getattr(planner, "_skill", None)
 
 
+def describe_goal(planner) -> str:
+    """Headline goal text across planner kinds: FallbackPlanner exposes a
+    Goal in `current`; DSLPlanner is described by its recovery/guard/program
+    state instead."""
+    recovery = getattr(planner, "_recovery", None)
+    if recovery is not None:
+        return "recovery: " + format_goal(getattr(recovery, "current", None))
+    goal = getattr(planner, "current", None)
+    if goal is not None:
+        return format_goal(goal)
+    override = getattr(planner, "override", None)
+    if override is not None:
+        return f"guard: {type(override).__name__}"
+    interp = getattr(planner, "interp", None)
+    if interp is not None:
+        return f"node: {interp.pc}"
+    return "(idle)"
+
+
 def format_goal(goal) -> str:
     if goal is None:
         return "(idle)"
@@ -254,7 +273,7 @@ def draw_panel(display: "pygame.Surface", fonts, session: AgentSession,
         f"reward: {session.total_reward:.1f}   speed: {pacer.speed}x"
         + ("   [PAUSED]" if paused else ""),
         "",
-        "goal: " + format_goal(getattr(planner, "current", None)),
+        "goal: " + describe_goal(planner),
     ]
     if session.task_id.endswith("task_5"):
         lines.append(f"phase: {getattr(planner, 'task5_phase', '-')}")
@@ -289,11 +308,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--smoke", type=int, default=0, metavar="N",
                         help="headless-friendly: run N steps then exit "
                              "with a JSON summary")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.smoke < 0:
+        parser.error("--smoke must be >= 0")
+    return args
 
 
 def main() -> None:
     args = parse_args()
+    os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
     if args.smoke:
         os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
     session = AgentSession(args.task, args.seed, args.backend,
@@ -342,6 +365,7 @@ def main() -> None:
                     session.reset()
                     stream = LogStream()
                     paused = False
+                    overlay_frames = 0
                 elif event.key == pygame.K_TAB:
                     from utils.human_play import dump_history
                     dump_history(session.history)

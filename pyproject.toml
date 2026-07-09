@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = []
+dev = ["pytest"]
 pygame = ["pygame>=2.5"]
 dreamer = ["pillow>=10"]
 

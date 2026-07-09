@@ -97,3 +97,54 @@ def test_active_skill_dsl_planner_layers():
     recovery._skill = nav
     planner._recovery = recovery
     assert active_skill(planner) is nav           # recovery preempts all
+
+
+from utils.agent_play import describe_goal
+
+
+def test_describe_goal_across_planners():
+    from nsi_agent.planner import FallbackPlanner
+
+    fp = FallbackPlanner()
+    assert describe_goal(fp) == "(idle)"
+    fp.current = Goal(("k",), "goto", {"target": (1, 2)})
+    assert "goto" in describe_goal(fp)
+
+    class FakeInterp:
+        pc = "n3"
+        active_skill = None
+
+    class FakeDSL:
+        override = None
+        _recovery = None
+        interp = FakeInterp()
+
+    planner = FakeDSL()
+    assert describe_goal(planner) == "node: n3"
+    planner.override = GoToTile()
+    assert describe_goal(planner) == "guard: GoToTile"
+
+    class FakeRecovery:
+        current = None
+
+    planner._recovery = FakeRecovery()
+    assert describe_goal(planner) == "recovery: (idle)"
+
+
+def test_observer_attribute_contract():
+    """Pin the private attribute names the observer reads, so a rename in
+    the agent code fails here instead of silently killing the overlay."""
+    import inspect
+
+    from nsi_agent.graph import Interpreter
+    from nsi_agent.induction.dsl import DSLPlanner
+    from nsi_agent.planner import FallbackPlanner
+
+    fp = FallbackPlanner()
+    for attr in ("_skill", "current", "goal_log", "diagnoses"):
+        assert hasattr(fp, attr)
+    dsl_src = inspect.getsource(DSLPlanner.__init__)
+    for attr in ("self.override", "self.goal_log", "self.diagnoses",
+                 "self._recovery", "self.interp"):
+        assert attr in dsl_src
+    assert "self.active_skill" in inspect.getsource(Interpreter.__init__)
