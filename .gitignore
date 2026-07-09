@@ -15,10 +15,6 @@ __pycache__/
 self_use/
 .vscode/
 
-/tests/
-!/tests/
-!/tests/*.py
-
 CLAUDE.md
 .claude/
 

@@ -2,7 +2,8 @@
 from nsi_agent.skills import GoToTile
 from nsi_agent.planner import Goal
 from utils.agent_play import (
-    SPEED_LADDER, StepPacer, active_skill, extract_nav, format_goal,
+    SPEED_LADDER, StepPacer, active_skill, describe_goal, extract_nav,
+    format_goal,
 )
 
 
@@ -99,9 +100,6 @@ def test_active_skill_dsl_planner_layers():
     assert active_skill(planner) is nav           # recovery preempts all
 
 
-from utils.agent_play import describe_goal
-
-
 def test_describe_goal_across_planners():
     from nsi_agent.planner import FallbackPlanner
 
@@ -135,6 +133,7 @@ def test_observer_attribute_contract():
     """Pin the private attribute names the observer reads, so a rename in
     the agent code fails here instead of silently killing the overlay."""
     import inspect
+    import re
 
     from nsi_agent.graph import Interpreter
     from nsi_agent.induction.dsl import DSLPlanner
@@ -144,7 +143,7 @@ def test_observer_attribute_contract():
     for attr in ("_skill", "current", "goal_log", "diagnoses"):
         assert hasattr(fp, attr)
     dsl_src = inspect.getsource(DSLPlanner.__init__)
-    for attr in ("self.override", "self.goal_log", "self.diagnoses",
-                 "self._recovery", "self.interp"):
-        assert attr in dsl_src
-    assert "self.active_skill" in inspect.getsource(Interpreter.__init__)
+    for attr in ("override", "goal_log", "diagnoses", "_recovery", "interp"):
+        assert re.search(rf"self\.{attr}\s*[:=]", dsl_src), attr
+    assert re.search(r"self\.active_skill\s*[:=]",
+                     inspect.getsource(Interpreter.__init__))
