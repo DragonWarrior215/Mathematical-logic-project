@@ -264,7 +264,8 @@ def draw_panel(display: "pygame.Surface", fonts, session: AgentSession,
         display.blit(font.render(text, True, TEXT_COLOR), (x, y))
         y += 20
     for step, text, kind in list(stream.entries):
-        color = LOG_FAIL_COLOR if kind in ("fail", "diag") else LOG_OK_COLOR
+        color = (LOG_FAIL_COLOR if ("fail" in kind or kind == "diag")
+                 else LOG_OK_COLOR)
         prefix = f"{step} " if step is not None else "    "
         display.blit(small.render((prefix + text)[:44], True, color), (x, y))
         y += 15
@@ -298,8 +299,16 @@ def main() -> None:
     session = AgentSession(args.task, args.seed, args.backend,
                            prefer_induced=not args.fallback)
     pygame.init()
-    display = pygame.display.set_mode(
-        (WINDOW_WIDTH + PANEL_WIDTH, WINDOW_HEIGHT))
+    try:
+        display = pygame.display.set_mode(
+            (WINDOW_WIDTH + PANEL_WIDTH, WINDOW_HEIGHT))
+    except pygame.error as exc:
+        print(f"[display unavailable: {exc}]")
+        print("需要 WSLg/X server;或无显示运行:"
+              "SDL_VIDEODRIVER=dummy python utils/agent_play.py --smoke N")
+        session.close()
+        pygame.quit()
+        sys.exit(1)
     pygame.display.set_caption(
         f"NesyLink Agent Observer — {args.task} [{args.backend}]")
     clock = pygame.time.Clock()
@@ -313,12 +322,36 @@ def main() -> None:
     while running:
         if not args.smoke:
             clock.tick(TARGET_FPS)
+        single_step = False
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    running = False
+                elif event.key == pygame.K_SPACE:
+                    paused = not paused
+                elif event.key == pygame.K_n:
+                    single_step = True
+                elif event.key in (pygame.K_PLUS, pygame.K_EQUALS,
+                                   pygame.K_KP_PLUS):
+                    pacer.faster()
+                elif event.key in (pygame.K_MINUS, pygame.K_KP_MINUS):
+                    pacer.slower()
+                elif event.key == pygame.K_r:
+                    session.reset()
+                    stream = LogStream()
+                    paused = False
+                elif event.key == pygame.K_TAB:
+                    from utils.human_play import dump_history
+                    dump_history(session.history)
         if not session.done:
-            n = 16 if args.smoke else (0 if paused
-                                       else pacer.steps_this_frame())
+            if args.smoke:
+                n = 16
+            elif paused:
+                n = 1 if single_step else 0
+            else:
+                n = pacer.steps_this_frame()
             for _ in range(n):
                 session.step()
                 if session.done:
@@ -329,6 +362,13 @@ def main() -> None:
         if draw_overlay(display, active_skill(session.policy.planner)):
             overlay_frames += 1
         draw_panel(display, fonts, session, stream, pacer, paused)
+        if session.done and not args.smoke:
+            banner = ("VICTORY - R to restart" if session.success
+                      else "GAME OVER - R to restart")
+            text_surface = fonts[0].render(banner, True, (255, 255, 255))
+            rect = text_surface.get_rect(
+                center=(WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2))
+            display.blit(text_surface, rect)
         pygame.display.flip()
 
         if args.smoke and (session.steps >= args.smoke or session.done):
