@@ -675,6 +675,8 @@ mask、护盾、规划器、轨迹一致性检查器）。
 ```bash
 # 训练期
 python -m nsi_agent.debug_run --episodes 3                  # Oracle 调试 5 关
+python utils/agent_play.py --task mathematical_logic/task_1 --speed 4     # 可视化观察器:实窗看 agent 跑关,叠加 BFS 路径/waypoint + goal_log 面板(Space 暂停、N 单步、+/- 调速、R 重置、Tab 倾倒历史)
+python utils/agent_play.py --task mathematical_logic/task_1 --smoke 3000  # 观察器无头冒烟 → JSON 摘要;--backend vlm、--fallback 可选
 python -m nsi_agent.grounding.dataset --out data/g --task-episodes 3 --unique-maps 3000
 python -m nsi_agent.grounding.dataset_v4 --out data/g4                    # v4 状态翻转/深渊矩阵/课程清扫
 python -m nsi_agent.grounding.dataset_v4 --relabel-in old.jsonl --relabel-out new.jsonl  # 标签卫生
