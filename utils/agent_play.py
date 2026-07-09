@@ -25,8 +25,16 @@ import os
 from collections import Counter, deque
 
 import numpy as np
+import pygame
 
 import nesylink
+from nesylink.core.constants import (
+    TARGET_FPS,
+    TILE_SIZE,
+    WINDOW_HEIGHT,
+    WINDOW_SCALE,
+    WINDOW_WIDTH,
+)
 from nsi_agent.agent import OracleGrounding, Policy
 from nsi_agent.skills import GoToTile
 
@@ -174,6 +182,80 @@ class AgentSession:
         self.env.close()
 
 
+CELL = TILE_SIZE * WINDOW_SCALE
+PATH_COLOR = (80, 200, 255, 160)
+WAYPOINT_COLOR = (255, 220, 80, 200)
+PANEL_BG = (24, 24, 32)
+TEXT_COLOR = (230, 230, 230)
+LOG_OK_COLOR = (170, 220, 170)
+LOG_FAIL_COLOR = (255, 120, 120)
+
+
+def tile_center_px(tile) -> tuple[int, int]:
+    tx, ty = tile
+    return (tx * CELL + CELL // 2, ty * CELL + CELL // 2)
+
+
+def draw_game(display: "pygame.Surface", frame: np.ndarray) -> None:
+    surface = pygame.surfarray.make_surface(np.transpose(frame, (1, 0, 2)))
+    display.blit(
+        pygame.transform.scale(surface, (WINDOW_WIDTH, WINDOW_HEIGHT)), (0, 0)
+    )
+
+
+def draw_overlay(display: "pygame.Surface", skill) -> bool:
+    """Planned path + next waypoint over the game view. True if drawn."""
+    nav = extract_nav(skill)
+    if nav is None or not nav._path:
+        return False
+    layer = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
+    points = [tile_center_px(t) for t in nav._path]
+    if len(points) >= 2:
+        pygame.draw.lines(layer, PATH_COLOR, False, points, 3)
+    if nav._waypoint is not None:
+        wx, wy = nav._waypoint
+        pygame.draw.rect(layer, WAYPOINT_COLOR,
+                         (wx * CELL, wy * CELL, CELL, CELL), 3)
+    display.blit(layer, (0, 0))
+    return True
+
+
+def draw_panel(display: "pygame.Surface", fonts, session: AgentSession,
+               stream: LogStream, pacer: StepPacer, paused: bool) -> None:
+    font, small = fonts
+    x = WINDOW_WIDTH + 10
+    pygame.draw.rect(display, PANEL_BG,
+                     (WINDOW_WIDTH, 0, PANEL_WIDTH, WINDOW_HEIGHT))
+    info = session.info
+    planner = session.policy.planner
+    lines = [
+        f"task: {session.task_id}",
+        f"seed: {session.seed}   step: "
+        f"{info.get('episode', {}).get('step_count', '?')}",
+        f"hp: {info.get('agent', {}).get('hp', '?')}   "
+        f"keys: {info.get('inventory', {}).get('keys', '?')}   "
+        f"room: {info.get('env', {}).get('room_id', '?')}",
+        f"reward: {session.total_reward:.1f}   speed: {pacer.speed}x"
+        + ("   [PAUSED]" if paused else ""),
+        "",
+        "goal: " + format_goal(getattr(planner, "current", None)),
+    ]
+    if session.task_id.endswith("task_5"):
+        lines.append(f"phase: {getattr(planner, 'task5_phase', '-')}")
+    lines += ["", "-- goal log --"]
+    y = 8
+    for text in lines:
+        display.blit(font.render(text, True, TEXT_COLOR), (x, y))
+        y += 20
+    for step, text, kind in list(stream.entries):
+        color = LOG_FAIL_COLOR if kind in ("fail", "diag") else LOG_OK_COLOR
+        prefix = f"{step} " if step is not None else "    "
+        display.blit(small.render((prefix + text)[:44], True, color), (x, y))
+        y += 15
+        if y > WINDOW_HEIGHT - 15:
+            break
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Watch the NSI agent play with a human-play style window"
@@ -199,16 +281,52 @@ def main() -> None:
         os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
     session = AgentSession(args.task, args.seed, args.backend,
                            prefer_induced=not args.fallback)
+    pygame.init()
+    display = pygame.display.set_mode(
+        (WINDOW_WIDTH + PANEL_WIDTH, WINDOW_HEIGHT))
+    pygame.display.set_caption(
+        f"NesyLink Agent Observer — {args.task} [{args.backend}]")
+    clock = pygame.time.Clock()
+    fonts = (pygame.font.SysFont(None, 22), pygame.font.SysFont(None, 17))
+    pacer = StepPacer(args.speed)
     stream = LogStream()
-    while not session.done and (not args.smoke or session.steps < args.smoke):
-        session.step()
-        stream.poll(session.policy.planner)
+    paused = False
+    overlay_frames = 0
+    running = True
+
+    while running:
         if not args.smoke:
-            break   # 交互渲染循环在 Task 4/5 中实现
+            clock.tick(TARGET_FPS)
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+        if not session.done:
+            n = 16 if args.smoke else (0 if paused
+                                       else pacer.steps_this_frame())
+            for _ in range(n):
+                session.step()
+                if session.done:
+                    break
+        stream.poll(session.policy.planner)
+
+        draw_game(display, session.env.render())
+        # DSLPlanner uses 'override', FallbackPlanner uses '_skill'
+        skill = (getattr(session.policy.planner, '_skill', None) or
+                 getattr(session.policy.planner, 'override', None))
+        if draw_overlay(display, skill):
+            overlay_frames += 1
+        draw_panel(display, fonts, session, stream, pacer, paused)
+        pygame.display.flip()
+
+        if args.smoke and (session.steps >= args.smoke or session.done):
+            running = False
+
     summary = session.summary()
+    summary["overlay_frames"] = overlay_frames
     summary["log_entries"] = len(stream.entries)
     print(json.dumps(summary, ensure_ascii=False))
     session.close()
+    pygame.quit()
 
 
 if __name__ == "__main__":
