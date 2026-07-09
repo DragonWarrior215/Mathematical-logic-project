@@ -104,4 +104,5 @@ theorem walkable_mono {r : RoomState} {p : Position}
     (h : walkable r p) : walkableWithHazard r p true := by
   exact ⟨h.1, h.2.1, by intro hfalse; cases hfalse⟩
 
+
 end EnvFormalization

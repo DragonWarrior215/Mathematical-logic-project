@@ -1,40 +1,13 @@
-import NesyFormalization.MapSemantics
+import NesyFormalization.NsiAgentFormalization
 
 namespace EnvFormalization
 
-/-- 跟踪器抽象：怪物位置加上一个不确定性半径。 -/
-structure TrackedMonster where
-  pos : Position
-  uncertainty : Nat := 0
-  deriving Repr, DecidableEq
+/-!
+  怪物危险语义的证明层。
 
-/-- 自然数坐标上的绝对差。 -/
-def absDiff (a b : Nat) : Nat :=
-  if a ≤ b then b - a else a - b
-
-/-- Chebyshev 距离，对应怪物周围的方形不确定区域。 -/
-def chebyshev (p q : Position) : Nat :=
-  Nat.max (absDiff p.1 q.1) (absDiff p.2 q.2)
-
-/-- 已跟踪怪物的保守危险半径。 -/
-def dangerRadius (m : TrackedMonster) : Nat :=
-  m.uncertainty + 1
-
-/-- 若格子在边界内且位于半径加安全边距的范围内，则它被怪物区域阻挡。 -/
-def monsterBlockedTile (m : TrackedMonster) (margin : Nat) (p : Position) : Prop :=
-  InBounds p ∧ chebyshev p m.pos ≤ dangerRadius m + margin
-
-/-- 一个格子位于单个怪物的不确定危险区域内。 -/
-def inMonsterDanger (p : Position) (m : TrackedMonster) : Prop :=
-  chebyshev p m.pos ≤ dangerRadius m
-
-/-- 一个格子位于至少一个已跟踪怪物的危险区域内。 -/
-def inDangerRegion (monsters : List TrackedMonster) (p : Position) : Prop :=
-  ∃ m, m ∈ monsters ∧ inMonsterDanger p m
-
-/-- 符号安全表示不处于任何已跟踪怪物的危险区域中。 -/
-def positionSafe (monsters : List TrackedMonster) (p : Position) : Prop :=
-  ¬ inDangerRegion monsters p
+  `TrackedMonster`、`dangerRadius`、`monsterBlockedTile`、`positionSafe` 等运行定义
+  位于 `NsiAgentFormalization.lean`；本文件只证明这些定义的基本性质。
+-/
 
 /-- `monster_blocked_in_bounds`：每个被怪物阻挡的格子都显式位于边界内。 -/
 theorem monster_blocked_in_bounds
@@ -58,13 +31,19 @@ theorem monster_margin_monotone
     monsterBlockedTile m margin' p := by
   exact ⟨h.1, Nat.le_trans h.2 (Nat.add_le_add_left hle (dangerRadius m))⟩
 
-/-- 真实世界安全性：候选格子不与任何真实怪物严格相邻。 -/
-def RealMonsterSafe (realMonsters : List Position) (p : Position) : Prop :=
-  ∀ real, real ∈ realMonsters → ¬ Neighbor p real
+/--
+`monster_region_real_sound`：在 tracker/grounding 覆盖条件成立时，
+符号层判定安全的格子在真实怪物位置上也安全。
 
-/-- 将符号怪物区域与真实怪物位置连接起来的接口假设。 -/
-def MonsterRegionSound
-    (tracked : List TrackedMonster) (realMonsters : List Position) : Prop :=
-  ∀ p, positionSafe tracked p → RealMonsterSafe realMonsters p
+这里的 `MonsterRegionSound` 是连接符号怪物区域和真实怪物位置的接口条件：
+它表达“真实怪物始终被 tracker 的不确定区域覆盖”。这个覆盖性本身应由
+tracker/grounding 相关定理证明；本定理只负责把该条件用于怪物危险语义。
+-/
+theorem monster_region_real_sound
+    {tracked : List TrackedMonster} {realMonsters : List Position} {p : Position}
+    (hregion : MonsterRegionSound tracked realMonsters)
+    (hsafe : positionSafe tracked p) :
+    RealMonsterSafe realMonsters p := by
+  exact hregion p hsafe
 
 end EnvFormalization

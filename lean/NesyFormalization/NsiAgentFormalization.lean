@@ -1,4 +1,4 @@
-import NesyFormalization.MonsterDanger
+import NesyFormalization.MapSemantics
 
 namespace EnvFormalization
 
@@ -21,6 +21,51 @@ Lean 层的 `nsi_agent` 运行语义。
 这样，别的 Lean 文件可以围绕 `nsiAgentAct` / `nsiAgentEnvStep` 证明性质，而不是
 先假设某个 BFS、shield 或 tracker 已经可靠。
 -/
+
+/-! ## 0. Agent 中使用的怪物危险运行定义 -/
+
+/-- 跟踪器抽象：怪物位置加上一个不确定性半径。 -/
+structure TrackedMonster where
+  pos : Position
+  uncertainty : Nat := 0
+  deriving Repr, DecidableEq
+
+/-- 自然数坐标上的绝对差。 -/
+def absDiff (a b : Nat) : Nat :=
+  if a ≤ b then b - a else a - b
+
+/-- Chebyshev 距离，对应怪物周围的方形不确定区域。 -/
+def chebyshev (p q : Position) : Nat :=
+  Nat.max (absDiff p.1 q.1) (absDiff p.2 q.2)
+
+/-- 已跟踪怪物的保守危险半径。 -/
+def dangerRadius (m : TrackedMonster) : Nat :=
+  m.uncertainty + 1
+
+/-- 若格子在边界内且位于半径加安全边距的范围内，则它被怪物区域阻挡。 -/
+def monsterBlockedTile (m : TrackedMonster) (margin : Nat) (p : Position) : Prop :=
+  InBounds p ∧ chebyshev p m.pos ≤ dangerRadius m + margin
+
+/-- 一个格子位于单个怪物的不确定危险区域内。 -/
+def inMonsterDanger (p : Position) (m : TrackedMonster) : Prop :=
+  chebyshev p m.pos ≤ dangerRadius m
+
+/-- 一个格子位于至少一个已跟踪怪物的危险区域内。 -/
+def inDangerRegion (monsters : List TrackedMonster) (p : Position) : Prop :=
+  ∃ m, m ∈ monsters ∧ inMonsterDanger p m
+
+/-- 符号安全表示不处于任何已跟踪怪物的危险区域中。 -/
+def positionSafe (monsters : List TrackedMonster) (p : Position) : Prop :=
+  ¬ inDangerRegion monsters p
+
+/-- 真实世界安全性：候选格子不与任何真实怪物严格相邻。 -/
+def RealMonsterSafe (realMonsters : List Position) (p : Position) : Prop :=
+  ∀ real, real ∈ realMonsters → ¬ Neighbor p real
+
+/-- 将符号怪物区域与真实怪物位置连接起来的接口条件。 -/
+def MonsterRegionSound
+    (tracked : List TrackedMonster) (realMonsters : List Position) : Prop :=
+  ∀ p, positionSafe tracked p → RealMonsterSafe realMonsters p
 
 /-! ## 1. Agent 中使用的 BFS / GoTo / shield 运行定义 -/
 

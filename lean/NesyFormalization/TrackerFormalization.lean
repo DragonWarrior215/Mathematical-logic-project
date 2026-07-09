@@ -6,8 +6,9 @@ namespace EnvFormalization
   Tracker 层的抽象正确性引理。
 
   Python 实现里的 tracker 使用像素坐标、0.5px 怪物速度和 AABB 碰撞。
-  本文件不直接形式化浮点和完整碰撞盒，而是把这些实现细节压缩成几个
-  可检查的符号接口条件，然后证明它们足以推出报告中列出的 tracker 性质。
+  本文件用半像素自然数坐标建模 tracker 的核心机制：关键帧同步会把不确定半径
+  重置为 0，死推演期间 tracker 中心保持在上次观测位置，而真实怪物若每步位移
+  不超过速度上界，则每步扩大的不确定球会持续覆盖真实位置。
 -/
 
 /-- 半像素单位的位置。`1` 表示 Python 中的 `0.5 px`。 -/
@@ -32,6 +33,25 @@ def pixelChebyshev (p q : PixelPos) : Nat :=
 /-- 真实位置 `real` 位于以 `center` 为中心、`radius` 为半径的不确定球内。 -/
 def BallCovers (center : PixelPos) (radius : Nat) (real : PixelPos) : Prop :=
   pixelChebyshev real center ≤ radius
+
+/-- 自然数绝对差满足三角不等式。 -/
+theorem absDiff_triangle (a b c : Nat) :
+    absDiff a c ≤ absDiff a b + absDiff b c := by
+  unfold absDiff
+  split <;> split <;> split <;> omega
+
+/-- 像素层 Chebyshev 距离满足三角不等式。 -/
+theorem pixelChebyshev_triangle (a b c : PixelPos) :
+    pixelChebyshev a c ≤ pixelChebyshev a b + pixelChebyshev b c := by
+  unfold pixelChebyshev
+  rw [Nat.max_le]
+  constructor
+  · exact Nat.le_trans
+      (absDiff_triangle a.x b.x c.x)
+      (Nat.add_le_add (Nat.le_max_left _ _) (Nat.le_max_left _ _))
+  · exact Nat.le_trans
+      (absDiff_triangle a.y b.y c.y)
+      (Nat.add_le_add (Nat.le_max_right _ _) (Nat.le_max_right _ _))
 
 /-- 像素层 tracker 中的一只怪物：中心位置加不确定半径。 -/
 structure PixelTrackedMonster where
@@ -63,32 +83,39 @@ structure TrackerBallTrace where
 def RadiusGrowsBy (tr : TrackerBallTrace) (speed : Nat) : Prop :=
   ∀ t, tr.radius (t + 1) = tr.radius t + speed
 
-/--
-每一步真实怪物的新位置都落在“上一半径加速度上界”的覆盖范围内。
+/-- 死推演期间 tracker 中心保持在上次关键帧观测位置。 -/
+def CenterStationary (tr : TrackerBallTrace) : Prop :=
+  ∀ t, tr.center (t + 1) = tr.center t
 
-在完整像素模型中，这个条件可由“怪物每步位移不超过 `speed`”以及 tracker
-中心的更新规则推出；这里把它作为死推演层的局部接口。
--/
-def RealStepWithinGrowth (tr : TrackerBallTrace) (speed : Nat) : Prop :=
-  ∀ t, BallCovers (tr.center (t + 1)) (tr.radius t + speed) (tr.real (t + 1))
+/-- 真实怪物每一步的像素层 Chebyshev 位移不超过速度上界。 -/
+def RealStepBounded (tr : TrackerBallTrace) (speed : Nat) : Prop :=
+  ∀ t, pixelChebyshev (tr.real (t + 1)) (tr.real t) ≤ speed
 
 /--
-`tracker_ball_invariant`：如果关键帧时真实怪物在 tracker 不确定球内，且之后每步
-半径按速度上界增长、真实位置满足局部覆盖条件，那么任意步数后真实位置仍在球内。
+`tracker_ball_invariant`：如果关键帧时真实怪物在 tracker 不确定球内，死推演期间
+tracker 中心不变、真实怪物每步位移不超过 `speed`，且半径每步按 `speed` 增长，
+那么任意步数后真实位置仍在 tracker 的不确定球内。
 -/
 theorem tracker_ball_invariant
     (tr : TrackerBallTrace) (speed : Nat)
     (h0 : BallCovers (tr.center 0) (tr.radius 0) (tr.real 0))
+    (hcenter : CenterStationary tr)
     (hgrow : RadiusGrowsBy tr speed)
-    (hstep : RealStepWithinGrowth tr speed) :
+    (hstep : RealStepBounded tr speed) :
     ∀ t, BallCovers (tr.center t) (tr.radius t) (tr.real t) := by
   intro t
   induction t with
   | zero =>
       exact h0
-  | succ t _ih =>
+  | succ t ih =>
+      unfold BallCovers at ih ⊢
       rw [hgrow t]
-      exact hstep t
+      rw [hcenter t]
+      exact Nat.le_trans
+        (pixelChebyshev_triangle (tr.real (t + 1)) (tr.real t) (tr.center t))
+        (by
+          have hs := hstep t
+          omega)
 
 /-- tile 层预测移动：目标格在界内且不阻挡时移动，否则原地。 -/
 def predictedTileMove (knownBlocking : Position → Bool) (p : Position) (d : Direction) : Position :=
@@ -116,22 +143,16 @@ theorem predict_move_engine_consistent
   simp [predictedTileMove, engineTileMove, hagree (facingTile p d)]
 
 /--
-invalid-action 反馈后的回退修正。若上一动作是移动且反馈说明撞墙，则回到上一位置；
-否则保留当前预测位置。
--/
-def applyBlockedFeedback
-    (previous predicted : PixelPos) (lastActionWasMove invalidFeedback : Bool) : PixelPos :=
-  if lastActionWasMove && invalidFeedback then previous else predicted
-
-/--
-`blocked_feedback_sound`：若 invalid-action 反馈可靠地说明真实玩家停在上一位置，
-则回退修正后的 tracker 预测位置等于真实位置。
+`blocked_feedback_sound`：对 `NsiAgentFormalization` 中的 reward 反馈更新函数，
+如果上一动作是移动且 tracker 记录了上一格，那么 invalid-action 反馈会把玩家位置
+回退到上一格。
 -/
 theorem blocked_feedback_sound
-    {previous predicted real : PixelPos}
-    (hreliable : real = previous) :
-    applyBlockedFeedback previous predicted true true = real := by
-  simp [applyBlockedFeedback, hreliable]
+    {s : NsiAgentState} {previous : Position}
+    (hmove : s.tracker.lastActionWasMove = true)
+    (hprev : s.tracker.previousPlayer? = some previous) :
+    (applyRewardBlockedFeedback true s).world.player = previous := by
+  simp [applyRewardBlockedFeedback, hmove, hprev]
 
 /-- 半像素坐标所属的 tile 下标。 -/
 def halfPxTileCoord (coord : HalfPx) : Nat :=
@@ -153,22 +174,41 @@ def AwayFromTileBoundary (p : PixelPos) : Prop :=
   p.y % halfTileSize ≠ 1 ∧
   p.y % halfTileSize ≠ halfTileSize - 1
 
-/-- tracker 使用的 player tile 计算。 -/
+/-- tracker 使用的 player tile 计算：将半像素中心坐标按 tile 尺寸整除归格。 -/
 def trackerPlayerTile (center : PixelPos) : Position :=
   pixelToTile center
 
-/-- 引擎公开信息中的 player tile 计算。 -/
-def enginePlayerTile (center : PixelPos) : Position :=
-  pixelToTile center
+/--
+半像素坐标 `coord` 属于第 `tile` 个 tile 的引擎侧区间。
+这里用半开区间 `[tile * 32, (tile + 1) * 32)` 表示 tile 归属。
+-/
+def CoordInTile (coord : HalfPx) (tile : Nat) : Prop :=
+  halfTileSize * tile ≤ coord ∧ coord < halfTileSize * (tile + 1)
+
+/-- 整除得到的 tile 下标确实包含原坐标。 -/
+theorem halfPxTileCoord_interval (coord : HalfPx) :
+    CoordInTile coord (halfPxTileCoord coord) := by
+  unfold CoordInTile halfPxTileCoord
+  constructor
+  · exact Nat.mul_div_le coord halfTileSize
+  · exact Nat.lt_mul_div_succ coord (by decide : 0 < halfTileSize)
 
 /--
-`player_tile_consistent`：当中心点远离 tile 边界时，tracker 和引擎使用同一归格规则
-得到的 player tile 一致。边界 disambiguation 不包含在这个保证里。
+引擎侧 tile 归属关系：玩家中心的 x/y 半像素坐标分别落在对应 tile 的半开区间内。
+-/
+def EngineTileContains (center : PixelPos) (tile : Position) : Prop :=
+  CoordInTile center.x tile.1 ∧ CoordInTile center.y tile.2
+
+/--
+`player_tile_consistent`：当中心点远离 tile 边界时，tracker 通过中心坐标整除得到的
+player tile 确实是引擎区间语义下包含该中心点的 tile。
+边界 disambiguation 不包含在这个保证里。
 -/
 theorem player_tile_consistent
     {center : PixelPos}
     (_haway : AwayFromTileBoundary center) :
-    trackerPlayerTile center = enginePlayerTile center := by
-  rfl
+    EngineTileContains center (trackerPlayerTile center) := by
+  unfold EngineTileContains trackerPlayerTile pixelToTile
+  constructor <;> exact halfPxTileCoord_interval _
 
 end EnvFormalization
