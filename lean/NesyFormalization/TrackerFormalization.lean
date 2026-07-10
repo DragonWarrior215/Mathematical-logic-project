@@ -40,6 +40,12 @@ theorem absDiff_triangle (a b c : Nat) :
   unfold absDiff
   split <;> split <;> split <;> omega
 
+/-- 绝对差的上界可以改写为两个方向的加法上界。 -/
+theorem bounds_of_absDiff_le {a b n : Nat} (h : absDiff a b ≤ n) :
+    a ≤ b + n ∧ b ≤ a + n := by
+  unfold absDiff at h
+  split at h <;> omega
+
 /-- 像素层 Chebyshev 距离满足三角不等式。 -/
 theorem pixelChebyshev_triangle (a b c : PixelPos) :
     pixelChebyshev a c ≤ pixelChebyshev a b + pixelChebyshev b c := by
@@ -144,14 +150,16 @@ theorem predict_move_engine_consistent
 
 /--
 `blocked_feedback_sound`：对 `NsiAgentFormalization` 中的 reward 反馈更新函数，
-如果上一动作是移动且 tracker 记录了上一格，那么 invalid-action 反馈会把玩家位置
-回退到上一格。
+如果上一动作是移动、tracker 记录了上一格，且可靠的 blocked feedback
+保证该上一格就是当前真实位置，那么回退修正后的预测位置等于真实位置。
 -/
 theorem blocked_feedback_sound
-    {s : NsiAgentState} {previous : Position}
+    {s : NsiAgentState} {previous realPlayer : Position}
     (hmove : s.tracker.lastActionWasMove = true)
-    (hprev : s.tracker.previousPlayer? = some previous) :
-    (applyRewardBlockedFeedback true s).world.player = previous := by
+    (hprev : s.tracker.previousPlayer? = some previous)
+    (hreliable : previous = realPlayer) :
+    (applyRewardBlockedFeedback true s).world.player = realPlayer := by
+  rw [← hreliable]
   simp [applyRewardBlockedFeedback, hmove, hprev]
 
 /-- 半像素坐标所属的 tile 下标。 -/
@@ -162,17 +170,21 @@ def halfPxTileCoord (coord : HalfPx) : Nat :=
 def pixelToTile (p : PixelPos) : Position :=
   (halfPxTileCoord p.x, halfPxTileCoord p.y)
 
+/-- 单轴坐标距离当前 tile 的两侧边界都超过 0.5px。 -/
+def CoordAwayFromTileBoundary (coord : HalfPx) : Prop :=
+  halfTileSize * halfPxTileCoord coord + 2 ≤ coord ∧
+    coord + 1 < halfTileSize * (halfPxTileCoord coord + 1)
+
 /--
-远离 tile 边界的条件。这里以半像素为单位排除边界及其相邻半像素点，表示
-中心点没有落在可能需要 disambiguation 的边界区域。
+远离 tile 边界的条件。这里以半像素为单位，要求 x/y 中心坐标
+与当前 tile 的两侧边界都保留足以吸收 ±0.5px 误差的余量。
 -/
 def AwayFromTileBoundary (p : PixelPos) : Prop :=
-  p.x % halfTileSize ≠ 0 ∧
-  p.x % halfTileSize ≠ 1 ∧
-  p.x % halfTileSize ≠ halfTileSize - 1 ∧
-  p.y % halfTileSize ≠ 0 ∧
-  p.y % halfTileSize ≠ 1 ∧
-  p.y % halfTileSize ≠ halfTileSize - 1
+  CoordAwayFromTileBoundary p.x ∧ CoordAwayFromTileBoundary p.y
+
+/-- 两个中心坐标在 x/y 两轴上的误差都不超过 0.5px（一个半像素单位）。 -/
+def WithinHalfPixel (predicted real : PixelPos) : Prop :=
+  absDiff predicted.x real.x ≤ 1 ∧ absDiff predicted.y real.y ≤ 1
 
 /-- tracker 使用的 player tile 计算：将半像素中心坐标按 tile 尺寸整除归格。 -/
 def trackerPlayerTile (center : PixelPos) : Position :=
@@ -194,21 +206,62 @@ theorem halfPxTileCoord_interval (coord : HalfPx) :
   · exact Nat.lt_mul_div_succ coord (by decide : 0 < halfTileSize)
 
 /--
+若预测坐标距离 tile 边界超过 0.5px，且真实坐标与预测坐标相差不超过
+0.5px，则两个坐标整除 tile 尺寸后得到相同的 tile 下标。
+-/
+theorem halfPxTileCoord_stable
+    {predicted real : HalfPx}
+    (hclose : absDiff predicted real ≤ 1)
+    (haway : CoordAwayFromTileBoundary predicted) :
+    halfPxTileCoord predicted = halfPxTileCoord real := by
+  unfold CoordAwayFromTileBoundary halfPxTileCoord halfTileSize at haway
+  unfold halfPxTileCoord halfTileSize
+  rcases haway with ⟨hlower, hupper⟩
+  rcases bounds_of_absDiff_le hclose with ⟨hPredLe, hRealLe⟩
+  clear hclose
+  have hrealLower : (predicted / 32) * 32 ≤ real := by
+    have hcombined : 32 * (predicted / 32) + 2 ≤ real + 1 :=
+      Nat.le_trans hlower hPredLe
+    have hplus : 32 * (predicted / 32) + 1 ≤ real + 1 :=
+      Nat.le_trans (Nat.add_le_add_left (by decide : 1 ≤ 2) _) hcombined
+    have h : 32 * (predicted / 32) ≤ real :=
+      Nat.le_of_add_le_add_right hplus
+    simpa [Nat.mul_comm] using h
+  have hrealUpper : real < (predicted / 32 + 1) * 32 := by
+    have h : real < 32 * (predicted / 32 + 1) :=
+      Nat.lt_of_le_of_lt hRealLe hupper
+    simpa [Nat.mul_comm] using h
+  symm
+  exact Nat.div_eq_of_lt_le hrealLower hrealUpper
+
+/--
 引擎侧 tile 归属关系：玩家中心的 x/y 半像素坐标分别落在对应 tile 的半开区间内。
 -/
 def EngineTileContains (center : PixelPos) (tile : Position) : Prop :=
   CoordInTile center.x tile.1 ∧ CoordInTile center.y tile.2
 
 /--
-`player_tile_consistent`：当中心点远离 tile 边界时，tracker 通过中心坐标整除得到的
-player tile 确实是引擎区间语义下包含该中心点的 tile。
-边界 disambiguation 不包含在这个保证里。
+`player_tile_consistent`：若 tracker 预测的玩家中心与真实中心的误差不超过
+0.5px，且预测中心到 tile 边界的距离超过 0.5px，则 tracker 和引擎的
+中心归格结果相同；真实中心也确实落在该 tile 的半开区间内。
 -/
 theorem player_tile_consistent
-    {center : PixelPos}
-    (_haway : AwayFromTileBoundary center) :
-    EngineTileContains center (trackerPlayerTile center) := by
-  unfold EngineTileContains trackerPlayerTile pixelToTile
-  constructor <;> exact halfPxTileCoord_interval _
+    {predictedCenter realCenter : PixelPos}
+    (hclose : WithinHalfPixel predictedCenter realCenter)
+    (haway : AwayFromTileBoundary predictedCenter) :
+    trackerPlayerTile predictedCenter = pixelToTile realCenter ∧
+      EngineTileContains realCenter (trackerPlayerTile predictedCenter) := by
+  rcases hclose with ⟨hxclose, hyclose⟩
+  rcases haway with ⟨hxAway, hyAway⟩
+  have hx : halfPxTileCoord predictedCenter.x = halfPxTileCoord realCenter.x :=
+    halfPxTileCoord_stable hxclose hxAway
+  have hy : halfPxTileCoord predictedCenter.y = halfPxTileCoord realCenter.y :=
+    halfPxTileCoord_stable hyclose hyAway
+  constructor
+  · simp [trackerPlayerTile, pixelToTile, hx, hy]
+  · rw [show trackerPlayerTile predictedCenter = pixelToTile realCenter by
+      simp [trackerPlayerTile, pixelToTile, hx, hy]]
+    unfold EngineTileContains pixelToTile
+    constructor <;> exact halfPxTileCoord_interval _
 
 end EnvFormalization

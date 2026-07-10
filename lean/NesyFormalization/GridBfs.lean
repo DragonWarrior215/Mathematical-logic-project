@@ -1052,774 +1052,7 @@ theorem bfsStateInvariant_step
       (seen := seen) (avoid := avoid) (goals := goals)
       (node := node) (queue := queue) hpaths
 
-/--
-证明用的 BFS 状态推进函数：与 `bfsSearch` 的队列/seen 更新一致，但不在 goal 处
-提前返回路径，只返回推进后的 `(seen, queue)`。它用于表达多步 frontier 覆盖不变量。
--/
-def bfsAdvance
-    (r : RoomState) (goals avoid : List Position) (allowHazard : Bool) :
-    Nat → List Position → List BfsNode → List Position × List BfsNode
-  | 0, seen, queue => (seen, queue)
-  | _ + 1, seen, [] => (seen, [])
-  | fuel + 1, seen, node :: queue =>
-      let children := expandNode r seen avoid goals allowHazard node
-      let seen' := seen ++ bfsNodeTiles children
-      bfsAdvance r goals avoid allowHazard fuel seen' (queue ++ children)
-
-/-- 证明用的 BFS trace 状态：额外记录已经弹出并处理过的 tile。 -/
-def bfsAdvanceTrace
-    (r : RoomState) (goals avoid : List Position) (allowHazard : Bool) :
-    Nat → List Position → List Position → List BfsNode →
-      List Position × List Position × List BfsNode
-  | 0, processed, seen, queue => (processed, seen, queue)
-  | _ + 1, processed, seen, [] => (processed, seen, [])
-  | fuel + 1, processed, seen, node :: queue =>
-      let children := expandNode r seen avoid goals allowHazard node
-      let processed' := processed ++ [node.tile]
-      let seen' := seen ++ bfsNodeTiles children
-      bfsAdvanceTrace r goals avoid allowHazard fuel processed' seen' (queue ++ children)
-
-/-- 在 trace 语义下，一个格子已经被处理过，或仍作为队列节点等待处理。 -/
-def TraceCovered (processed : List Position) (queue : List BfsNode) (p : Position) : Prop :=
-  p ∈ processed ∨ ∃ node, node ∈ queue ∧ node.tile = p
-
-/-- `seen` 中的每个格子都应当能在 processed 或 queue 中找到来源。 -/
-def SeenTraceCovered
-    (processed seen : List Position) (queue : List BfsNode) : Prop :=
-  ∀ p, p ∈ seen → TraceCovered processed queue p
-
-/-- 已处理节点的合法 frontier 已经被 processed/queue 覆盖。 -/
-def ProcessedFrontierClosed
-    (r : RoomState) (allowHazard : Bool) (goals avoid : List Position)
-    (processed : List Position) (queue : List BfsNode) : Prop :=
-  ∀ p nxt,
-    p ∈ processed →
-    Neighbor p nxt →
-    walkableForMode r allowHazard nxt →
-    (nxt ∈ goals ∨ nxt ∉ avoid) →
-    TraceCovered processed queue nxt
-
-/-- 从当前格子出发的一条满足 BFS 模式约束的路径后缀。 -/
-inductive ConstrainedSuffix
-    (r : RoomState) (allowHazard : Bool) (goals avoid : List Position) :
-    Position → List Position → Prop where
-  | single {p : Position}
-      (hwalk : walkableForMode r allowHazard p) :
-      ConstrainedSuffix r allowHazard goals avoid p [p]
-  | cons {p q : Position} {rest : List Position}
-      (hwalk : walkableForMode r allowHazard p)
-      (hneigh : Neighbor p q)
-      (hnext : q ∈ goals ∨ q ∉ avoid)
-      (htail : ConstrainedSuffix r allowHazard goals avoid q (q :: rest)) :
-      ConstrainedSuffix r allowHazard goals avoid p (p :: q :: rest)
-
-/--
-把普通路径结构转换为 `ConstrainedSuffix`。这里要求路径中每个点满足当前模式可走，
-相邻链成立，并且每一步的下一个点要么是 goal，要么不在 avoid 中。
--/
-theorem constrainedSuffix_of_chain
-    {r : RoomState} {allowHazard : Bool} {goals avoid : List Position} :
-    ∀ {path : List Position} {start : Position},
-      path.head? = some start →
-      path.Nodup →
-      PathWalkableForMode r allowHazard path →
-      PathChain path →
-      (∀ p, p ∈ path → p ≠ start → p ∉ goals → p ∉ avoid) →
-      ConstrainedSuffix r allowHazard goals avoid start path
-  | [], start, hhead, _hnodup, _hwalks, _hchain, _havoid => by
-      simp at hhead
-  | [p], start, hhead, _hnodup, hwalks, _hchain, _havoid => by
-      simp at hhead
-      subst p
-      exact ConstrainedSuffix.single (hwalks start (by simp))
-  | p :: q :: rest, start, hhead, hnodup, hwalks, hchain, havoid => by
-      simp at hhead
-      subst p
-      have hnodupSplit := hnodup
-      simp at hnodupSplit
-      have hnodupTail : (q :: rest).Nodup := by
-        simp [hnodupSplit.2.1, hnodupSplit.2.2]
-      have hstartNotTail : start ∉ q :: rest := by
-        intro hs
-        simp at hs
-        rcases hs with hs | hs
-        · exact hnodupSplit.1.1 hs
-        · exact hnodupSplit.1.2 hs
-      have htail :
-          ConstrainedSuffix r allowHazard goals avoid q (q :: rest) :=
-        constrainedSuffix_of_chain
-          (path := q :: rest) (start := q)
-          (by simp)
-          hnodupTail
-          (by
-            intro x hx
-            exact hwalks x (by simp [hx]))
-          (by
-            simpa [PathChain] using hchain.2)
-          (by
-            intro x hx hxq hxnotGoal
-            by_cases hx_is_q : x = q
-            · exact False.elim (hxq hx_is_q)
-            exact havoid x (by simp [hx])
-              (by
-                intro hxstart
-                exact hstartNotTail (by simpa [hxstart] using hx))
-              hxnotGoal)
-      have hnext : q ∈ goals ∨ q ∉ avoid := by
-        by_cases hgoal : q ∈ goals
-        · exact Or.inl hgoal
-        · right
-          exact havoid q (by simp)
-            (by
-              intro hqStart
-              have hneighbor : Neighbor start q := by
-                simpa [PathChain] using hchain.1
-              exact neighbor_ne hneighbor hqStart.symm)
-            hgoal
-      exact ConstrainedSuffix.cons
-        (hwalks start (by simp))
-        (by simpa [PathChain] using hchain.1)
-        hnext htail
-
-/-- trace 层的核心覆盖不变量。 -/
-def BfsTraceInvariant
-    (r : RoomState) (allowHazard : Bool) (goals avoid : List Position)
-    (processed seen : List Position) (queue : List BfsNode) : Prop :=
-  SeenTraceCovered processed seen queue ∧
-    ProcessedFrontierClosed r allowHazard goals avoid processed queue
-
-/-- 初始 trace 状态满足覆盖不变量。 -/
-theorem initialBfsTraceInvariant
-    {r : RoomState} {allowHazard : Bool} {goals avoid : List Position} {start : Position} :
-    BfsTraceInvariant r allowHazard goals avoid [] [start] [initialBfsNode start] := by
-  constructor
-  · intro p hp
-    unfold TraceCovered
-    right
-    refine ⟨initialBfsNode start, by simp, ?_⟩
-    simp [initialBfsNode] at hp ⊢
-    exact hp.symm
-  · intro p _nxt hp _hneigh _hwalk _hallowed
-    simp at hp
-
-/-- trace 覆盖在一步 BFS 处理后保持。 -/
-theorem traceCovered_preserved_after_step
-    {r : RoomState} {allowHazard : Bool} {goals avoid processed seen : List Position}
-    {node : BfsNode} {queue : List BfsNode} {p : Position}
-    (hcover : TraceCovered processed (node :: queue) p) :
-    let children := expandNode r seen avoid goals allowHazard node
-    TraceCovered (processed ++ [node.tile]) (queue ++ children) p := by
-  intro children
-  unfold TraceCovered at hcover ⊢
-  rcases hcover with hproc | hqueue
-  · left
-    rw [List.mem_append]
-    exact Or.inl hproc
-  · rcases hqueue with ⟨coveredNode, hmem, htile⟩
-    simp at hmem
-    rcases hmem with hhead | hrest
-    · subst coveredNode
-      subst p
-      left
-      rw [List.mem_append]
-      exact Or.inr (by simp)
-    · right
-      refine ⟨coveredNode, ?_, htile⟩
-      rw [List.mem_append]
-      exact Or.inl hrest
-
-/-- 新加入的 child tile 在 trace 中由新队列覆盖。 -/
-theorem child_tile_traceCovered_after_step
-    {r : RoomState} {allowHazard : Bool} {goals avoid processed seen : List Position}
-    {node child : BfsNode} {queue : List BfsNode}
-    (hchild : child ∈ expandNode r seen avoid goals allowHazard node) :
-    TraceCovered (processed ++ [node.tile])
-      (queue ++ expandNode r seen avoid goals allowHazard node) child.tile := by
-  unfold TraceCovered
-  right
-  refine ⟨child, ?_, rfl⟩
-  rw [List.mem_append]
-  exact Or.inr hchild
-
-/-- `TileCovered` 可以借助 `SeenTraceCovered` 提升为 trace 覆盖。 -/
-theorem tileCovered_to_traceCovered
-    {processed seen : List Position} {queue : List BfsNode} {p : Position}
-    (hseenTrace : SeenTraceCovered processed seen queue)
-    (hcover : TileCovered seen queue p) :
-    TraceCovered processed queue p := by
-  unfold TileCovered at hcover
-  rcases hcover with hseen | hqueue
-  · exact hseenTrace p hseen
-  · unfold TraceCovered
-    exact Or.inr hqueue
-
-/-- 一步处理后，新的 `seen` 仍然都能由 processed/queue 解释。 -/
-theorem seenTraceCovered_step
-    {r : RoomState} {allowHazard : Bool} {goals avoid processed seen : List Position}
-    {node : BfsNode} {queue : List BfsNode}
-    (hseenTrace : SeenTraceCovered processed seen (node :: queue)) :
-    SeenTraceCovered (processed ++ [node.tile])
-      (seen ++ bfsNodeTiles (expandNode r seen avoid goals allowHazard node))
-      (queue ++ expandNode r seen avoid goals allowHazard node) := by
-  intro p hp
-  rw [List.mem_append] at hp
-  rcases hp with hpSeen | hpChildTile
-  · exact traceCovered_preserved_after_step
-      (r := r) (allowHazard := allowHazard) (goals := goals) (avoid := avoid)
-      (processed := processed) (seen := seen) (node := node) (queue := queue)
-      (p := p) (hseenTrace p hpSeen)
-  · unfold bfsNodeTiles at hpChildTile
-    rcases List.mem_map.mp hpChildTile with ⟨child, hchild, htile⟩
-    subst p
-    exact child_tile_traceCovered_after_step
-      (r := r) (allowHazard := allowHazard) (goals := goals) (avoid := avoid)
-      (processed := processed) (seen := seen) (node := node) (queue := queue)
-      hchild
-
-/-- 一步处理后，已处理节点的 frontier 闭包保持。 -/
-theorem processedFrontierClosed_step
-    {r : RoomState} {allowHazard : Bool} {goals avoid processed seen : List Position}
-    {node : BfsNode} {queue : List BfsNode}
-    (hseenTrace :
-      SeenTraceCovered (processed ++ [node.tile])
-        (seen ++ bfsNodeTiles (expandNode r seen avoid goals allowHazard node))
-        (queue ++ expandNode r seen avoid goals allowHazard node))
-    (hclosed : ProcessedFrontierClosed r allowHazard goals avoid processed (node :: queue)) :
-    ProcessedFrontierClosed r allowHazard goals avoid
-      (processed ++ [node.tile])
-      (queue ++ expandNode r seen avoid goals allowHazard node) := by
-  intro p nxt hp hneighbor hwalk hallowed
-  rw [List.mem_append] at hp
-  rcases hp with hpOld | hpNew
-  · exact traceCovered_preserved_after_step
-      (r := r) (allowHazard := allowHazard) (goals := goals) (avoid := avoid)
-      (processed := processed) (seen := seen) (node := node) (queue := queue)
-      (p := nxt)
-      (hclosed p nxt hpOld hneighbor hwalk hallowed)
-  · simp at hpNew
-    subst p
-    have htile :
-        TileCovered
-          (seen ++ bfsNodeTiles (expandNode r seen avoid goals allowHazard node))
-          (queue ++ expandNode r seen avoid goals allowHazard node)
-          nxt := by
-      rcases bfs_step_covers_constrained_neighbor
-          (r := r) (allowHazard := allowHazard) (seen := seen)
-          (avoid := avoid) (goals := goals) (queue := queue) (node := node)
-          (nxt := nxt) hneighbor hwalk hallowed with
-        ⟨hseen, hqueue⟩
-      unfold TileCovered
-      rcases hqueue with hOld | hQueued
-      · left
-        rw [List.mem_append]
-        exact Or.inl hOld
-      · right
-        exact hQueued
-    exact tileCovered_to_traceCovered hseenTrace htile
-
-/-- 一步 BFS 处理保持 trace 覆盖不变量。 -/
-theorem bfsTraceInvariant_step
-    {r : RoomState} {allowHazard : Bool} {goals avoid processed seen : List Position}
-    {node : BfsNode} {queue : List BfsNode}
-    (hinv : BfsTraceInvariant r allowHazard goals avoid processed seen (node :: queue)) :
-    BfsTraceInvariant r allowHazard goals avoid
-      (processed ++ [node.tile])
-      (seen ++ bfsNodeTiles (expandNode r seen avoid goals allowHazard node))
-      (queue ++ expandNode r seen avoid goals allowHazard node) := by
-  rcases hinv with ⟨hseenTrace, hclosed⟩
-  have hseenStep :
-      SeenTraceCovered (processed ++ [node.tile])
-        (seen ++ bfsNodeTiles (expandNode r seen avoid goals allowHazard node))
-        (queue ++ expandNode r seen avoid goals allowHazard node) :=
-    seenTraceCovered_step
-      (r := r) (allowHazard := allowHazard) (goals := goals) (avoid := avoid)
-      (processed := processed) (seen := seen) (node := node) (queue := queue)
-      hseenTrace
-  exact ⟨hseenStep,
-    processedFrontierClosed_step
-      (r := r) (allowHazard := allowHazard) (goals := goals) (avoid := avoid)
-      (processed := processed) (seen := seen) (node := node) (queue := queue)
-      hseenStep hclosed⟩
-
-/-- `bfsAdvanceTrace` 推进任意多步都保持 trace 覆盖不变量。 -/
-theorem bfsAdvanceTrace_preserves_invariant
-    {r : RoomState} {allowHazard : Bool} {goals avoid processed seen : List Position}
-    {queue : List BfsNode} {fuel : Nat}
-    (hinv : BfsTraceInvariant r allowHazard goals avoid processed seen queue) :
-    BfsTraceInvariant r allowHazard goals avoid
-      (bfsAdvanceTrace r goals avoid allowHazard fuel processed seen queue).1
-      (bfsAdvanceTrace r goals avoid allowHazard fuel processed seen queue).2.1
-      (bfsAdvanceTrace r goals avoid allowHazard fuel processed seen queue).2.2 := by
-  revert processed seen queue
-  induction fuel with
-  | zero =>
-      intro processed seen queue hinv
-      simpa [bfsAdvanceTrace] using hinv
-  | succ fuel ih =>
-      intro processed seen queue hinv
-      cases queue with
-      | nil =>
-          simpa [bfsAdvanceTrace] using hinv
-      | cons node rest =>
-          simp [bfsAdvanceTrace]
-          exact ih (bfsTraceInvariant_step
-            (r := r) (allowHazard := allowHazard) (goals := goals) (avoid := avoid)
-            (processed := processed) (seen := seen) (node := node) (queue := rest)
-            hinv)
-
-/-- `bfsAdvanceTrace` 只会向 `seen` 追加格子，不会删除旧的 seen。 -/
-theorem bfsAdvanceTrace_seen_monotone
-    {r : RoomState} {allowHazard : Bool} {goals avoid processed seen : List Position}
-    {queue : List BfsNode} {fuel : Nat} {p : Position}
-    (hp : p ∈ seen) :
-    p ∈ (bfsAdvanceTrace r goals avoid allowHazard fuel processed seen queue).2.1 := by
-  revert processed seen queue
-  induction fuel with
-  | zero =>
-      intro processed seen queue hp
-      simpa [bfsAdvanceTrace] using hp
-  | succ fuel ih =>
-      intro processed seen queue hp
-      cases queue with
-      | nil =>
-          simpa [bfsAdvanceTrace] using hp
-      | cons node rest =>
-          simp [bfsAdvanceTrace]
-          exact ih (by
-            rw [List.mem_append]
-            exact Or.inl hp)
-
-/-- `seen` 中的任意格子在 trace 推进任意步后仍由 processed/queue 覆盖。 -/
-theorem bfsAdvanceTrace_preserves_seen_traceCovered
-    {r : RoomState} {allowHazard : Bool} {goals avoid processed seen : List Position}
-    {queue : List BfsNode} {fuel : Nat} {p : Position}
-    (hinv : BfsTraceInvariant r allowHazard goals avoid processed seen queue)
-    (hp : p ∈ seen) :
-    TraceCovered
-      (bfsAdvanceTrace r goals avoid allowHazard fuel processed seen queue).1
-      (bfsAdvanceTrace r goals avoid allowHazard fuel processed seen queue).2.2
-      p := by
-  have hinv' :=
-    bfsAdvanceTrace_preserves_invariant
-      (r := r) (allowHazard := allowHazard) (goals := goals) (avoid := avoid)
-      (processed := processed) (seen := seen) (queue := queue) (fuel := fuel)
-      hinv
-  exact hinv'.1 p (bfsAdvanceTrace_seen_monotone
-    (r := r) (allowHazard := allowHazard) (goals := goals) (avoid := avoid)
-    (processed := processed) (seen := seen) (queue := queue) (fuel := fuel)
-    hp)
-
-/-- 已经 trace-covered 的格子在 trace 推进任意步后仍然 trace-covered。 -/
-theorem bfsAdvanceTrace_preserves_traceCovered
-    {r : RoomState} {allowHazard : Bool} {goals avoid processed seen : List Position}
-    {queue : List BfsNode} {fuel : Nat} {p : Position}
-    (hinv : BfsTraceInvariant r allowHazard goals avoid processed seen queue)
-    (hcover : TraceCovered processed queue p) :
-    TraceCovered
-      (bfsAdvanceTrace r goals avoid allowHazard fuel processed seen queue).1
-      (bfsAdvanceTrace r goals avoid allowHazard fuel processed seen queue).2.2
-      p := by
-  revert processed seen queue
-  induction fuel with
-  | zero =>
-      intro processed seen queue hinv hcover
-      simpa [bfsAdvanceTrace] using hcover
-  | succ fuel ih =>
-      intro processed seen queue hinv hcover
-      cases queue with
-      | nil =>
-          simpa [bfsAdvanceTrace] using hcover
-      | cons node rest =>
-          simp [bfsAdvanceTrace]
-          have hstepInv :
-              BfsTraceInvariant r allowHazard goals avoid
-                (processed ++ [node.tile])
-                (seen ++ bfsNodeTiles (expandNode r seen avoid goals allowHazard node))
-                (rest ++ expandNode r seen avoid goals allowHazard node) :=
-            bfsTraceInvariant_step
-              (r := r) (allowHazard := allowHazard) (goals := goals) (avoid := avoid)
-              (processed := processed) (seen := seen) (node := node) (queue := rest)
-              hinv
-          have hstepCover :
-              TraceCovered (processed ++ [node.tile])
-                (rest ++ expandNode r seen avoid goals allowHazard node) p :=
-            traceCovered_preserved_after_step
-              (r := r) (allowHazard := allowHazard) (goals := goals) (avoid := avoid)
-              (processed := processed) (seen := seen) (node := node) (queue := rest)
-              (p := p) hcover
-          exact ih hstepInv hstepCover
-
-/--
-trace 版：若队列中某个节点 `node` 的合法邻居是 frontier，则处理到该节点并继续推进
-任意多步后，该邻居被 processed/queue 覆盖。
--/
-theorem bfsAdvanceTrace_covers_frontier_of_queued_node
-    {r : RoomState} {allowHazard : Bool} {goals avoid processed seen : List Position}
-    {front suffix : List BfsNode} {node : BfsNode} {fuel : Nat} {p : Position}
-    (hinv : BfsTraceInvariant r allowHazard goals avoid processed seen (front ++ node :: suffix))
-    (hfrontier :
-      Neighbor node.tile p ∧ walkableForMode r allowHazard p ∧
-        (p ∈ goals ∨ p ∉ avoid)) :
-    TraceCovered
-      (bfsAdvanceTrace r goals avoid allowHazard (front.length + 1 + fuel)
-        processed seen (front ++ node :: suffix)).1
-      (bfsAdvanceTrace r goals avoid allowHazard (front.length + 1 + fuel)
-        processed seen (front ++ node :: suffix)).2.2
-      p := by
-  induction front generalizing processed seen suffix with
-  | nil =>
-      have hstepInv :
-          BfsTraceInvariant r allowHazard goals avoid
-            (processed ++ [node.tile])
-            (seen ++ bfsNodeTiles (expandNode r seen avoid goals allowHazard node))
-            (suffix ++ expandNode r seen avoid goals allowHazard node) :=
-        bfsTraceInvariant_step
-          (r := r) (allowHazard := allowHazard) (goals := goals) (avoid := avoid)
-          (processed := processed) (seen := seen) (node := node) (queue := suffix)
-          hinv
-      have hnow :
-          TraceCovered (processed ++ [node.tile])
-            (suffix ++ expandNode r seen avoid goals allowHazard node) p := by
-        exact hstepInv.2 node.tile p (by
-          rw [List.mem_append]
-          exact Or.inr (by simp)) hfrontier.1 hfrontier.2.1 hfrontier.2.2
-      simpa [bfsAdvanceTrace, Nat.add_comm, Nat.add_left_comm, Nat.add_assoc] using
-        bfsAdvanceTrace_preserves_traceCovered
-        (r := r) (allowHazard := allowHazard) (goals := goals) (avoid := avoid)
-        (processed := processed ++ [node.tile])
-        (seen := seen ++ bfsNodeTiles (expandNode r seen avoid goals allowHazard node))
-        (queue := suffix ++ expandNode r seen avoid goals allowHazard node)
-        (fuel := fuel) (p := p) hstepInv hnow
-  | cons head rest ih =>
-      have hstepInv :
-          BfsTraceInvariant r allowHazard goals avoid
-            (processed ++ [head.tile])
-            (seen ++ bfsNodeTiles (expandNode r seen avoid goals allowHazard head))
-            (rest ++ node :: (suffix ++ expandNode r seen avoid goals allowHazard head)) := by
-        have hraw :
-            BfsTraceInvariant r allowHazard goals avoid
-              (processed ++ [head.tile])
-              (seen ++ bfsNodeTiles (expandNode r seen avoid goals allowHazard head))
-              ((rest ++ node :: suffix) ++ expandNode r seen avoid goals allowHazard head) :=
-          bfsTraceInvariant_step
-            (r := r) (allowHazard := allowHazard) (goals := goals) (avoid := avoid)
-            (processed := processed) (seen := seen) (node := head)
-            (queue := rest ++ node :: suffix)
-            (by simpa [List.cons_append] using hinv)
-        simpa [List.append_assoc] using hraw
-      have htarget :=
-        ih
-          (processed := processed ++ [head.tile])
-          (seen := seen ++ bfsNodeTiles (expandNode r seen avoid goals allowHazard head))
-          (suffix := suffix ++ expandNode r seen avoid goals allowHazard head)
-          hstepInv
-      simpa [bfsAdvanceTrace, List.append_assoc, Nat.add_comm, Nat.add_left_comm, Nat.add_assoc]
-        using htarget
-
-/-- 空队列下，`bfsAdvanceTrace` 推进任意步都保持不变。 -/
-theorem bfsAdvanceTrace_empty
-    {r : RoomState} {allowHazard : Bool} {goals avoid processed seen : List Position}
-    (fuel : Nat) :
-    bfsAdvanceTrace r goals avoid allowHazard fuel processed seen [] = (processed, seen, []) := by
-  cases fuel <;> simp [bfsAdvanceTrace]
-
-/-- `bfsAdvanceTrace` 的多步推进可以分段组合。 -/
-theorem bfsAdvanceTrace_add
-    {r : RoomState} {allowHazard : Bool} {goals avoid processed seen : List Position}
-    {queue : List BfsNode} (fuel₁ fuel₂ : Nat) :
-    bfsAdvanceTrace r goals avoid allowHazard (fuel₁ + fuel₂) processed seen queue =
-      let s := bfsAdvanceTrace r goals avoid allowHazard fuel₁ processed seen queue
-      bfsAdvanceTrace r goals avoid allowHazard fuel₂ s.1 s.2.1 s.2.2 := by
-  revert processed seen queue
-  induction fuel₁ with
-  | zero =>
-      intro processed seen queue
-      simp [bfsAdvanceTrace]
-  | succ fuel₁ ih =>
-      intro processed seen queue
-      cases queue with
-      | nil =>
-          simp [bfsAdvanceTrace_empty]
-      | cons node rest =>
-          rw [Nat.succ_add]
-          simp [bfsAdvanceTrace]
-          exact ih
-
-/--
-任意长度约束后缀的终点 eventually 被 trace 覆盖。
-
-如果当前格子 `cur` 已经由 `processed/queue` 覆盖，并且存在一条满足 BFS 模式约束的
-后缀路径从 `cur` 到 `target`，那么推进有限步后 `target` 也会被覆盖。
--/
-theorem constrainedSuffix_eventually_traceCovered
-    {r : RoomState} {allowHazard : Bool} {goals avoid processed seen : List Position}
-    {queue : List BfsNode} {cur target : Position} {path : List Position}
-    (hsuffix : ConstrainedSuffix r allowHazard goals avoid cur path)
-    (hlast : path.getLast? = some target)
-    (hinv : BfsTraceInvariant r allowHazard goals avoid processed seen queue)
-    (hcover : TraceCovered processed queue cur) :
-    ∃ fuel,
-      TraceCovered
-        (bfsAdvanceTrace r goals avoid allowHazard fuel processed seen queue).1
-        (bfsAdvanceTrace r goals avoid allowHazard fuel processed seen queue).2.2
-        target := by
-  induction hsuffix generalizing processed seen queue target with
-  | single hwalk =>
-      simp at hlast
-      subst target
-      exact ⟨0, by simpa [bfsAdvanceTrace] using hcover⟩
-  | cons hwalk hneigh hnext htail ih =>
-      rename_i p q rest
-      simp at hlast
-      unfold TraceCovered at hcover
-      rcases hcover with hprocessed | hqueued
-      · have hq : TraceCovered processed queue q :=
-          hinv.2 p q hprocessed hneigh (by
-            cases htail with
-            | single hqwalk => exact hqwalk
-            | cons hqwalk _ _ _ => exact hqwalk) hnext
-        exact ih hlast hinv hq
-      · rcases hqueued with ⟨node, hnodeMem, hnodeTile⟩
-        rcases list_mem_split hnodeMem with ⟨front, suffix, hsplit⟩
-        have hinvQueue :
-            BfsTraceInvariant r allowHazard goals avoid processed seen
-              (front ++ node :: suffix) := by
-          simpa [hsplit] using hinv
-        have hfrontier :
-            Neighbor node.tile q ∧ walkableForMode r allowHazard q ∧
-              (q ∈ goals ∨ q ∉ avoid) := by
-          constructor
-          · simpa [hnodeTile] using hneigh
-          constructor
-          · cases htail with
-            | single hqwalk => exact hqwalk
-            | cons hqwalk _ _ _ => exact hqwalk
-          · exact hnext
-        let fuel₁ := front.length + 1
-        have hqCover :
-            TraceCovered
-              (bfsAdvanceTrace r goals avoid allowHazard fuel₁ processed seen queue).1
-              (bfsAdvanceTrace r goals avoid allowHazard fuel₁ processed seen queue).2.2
-              q := by
-          have hraw :=
-            bfsAdvanceTrace_covers_frontier_of_queued_node
-              (r := r) (allowHazard := allowHazard) (goals := goals) (avoid := avoid)
-              (processed := processed) (seen := seen)
-              (front := front) (suffix := suffix) (node := node) (fuel := 0)
-              hinvQueue hfrontier
-          simpa [fuel₁, hsplit, Nat.add_comm, Nat.add_left_comm, Nat.add_assoc] using hraw
-        have hinvAfter :
-            BfsTraceInvariant r allowHazard goals avoid
-              (bfsAdvanceTrace r goals avoid allowHazard fuel₁ processed seen queue).1
-              (bfsAdvanceTrace r goals avoid allowHazard fuel₁ processed seen queue).2.1
-              (bfsAdvanceTrace r goals avoid allowHazard fuel₁ processed seen queue).2.2 :=
-          bfsAdvanceTrace_preserves_invariant
-            (r := r) (allowHazard := allowHazard) (goals := goals) (avoid := avoid)
-            (processed := processed) (seen := seen) (queue := queue) (fuel := fuel₁)
-            hinv
-        rcases ih hlast hinvAfter hqCover with ⟨fuel₂, htarget⟩
-        refine ⟨fuel₁ + fuel₂, ?_⟩
-        simpa [bfsAdvanceTrace_add]
-          using htarget
-
-/--
-从初始 BFS trace 状态出发，任意长度的约束后缀路径终点 eventually 被覆盖。
--/
-theorem constrainedSuffix_initial_eventually_traceCovered
-    {r : RoomState} {allowHazard : Bool} {goals avoid : List Position}
-    {start target : Position} {path : List Position}
-    (hsuffix : ConstrainedSuffix r allowHazard goals avoid start path)
-    (hlast : path.getLast? = some target) :
-    ∃ fuel,
-      TraceCovered
-        (bfsAdvanceTrace r goals avoid allowHazard fuel [] [start] [initialBfsNode start]).1
-        (bfsAdvanceTrace r goals avoid allowHazard fuel [] [start] [initialBfsNode start]).2.2
-        target := by
-  exact constrainedSuffix_eventually_traceCovered
-    (r := r) (allowHazard := allowHazard) (goals := goals) (avoid := avoid)
-    (processed := []) (seen := [start]) (queue := [initialBfsNode start])
-    (cur := start) (target := target) (path := path)
-    hsuffix hlast
-    (initialBfsTraceInvariant
-      (r := r) (allowHazard := allowHazard) (goals := goals) (avoid := avoid)
-      (start := start))
-    (by
-      unfold TraceCovered
-      right
-      refine ⟨initialBfsNode start, by simp, ?_⟩
-      simp [initialBfsNode])
-
-/-- `bfsAdvance` 多步推进保持 BFS 核心状态不变量。 -/
-theorem bfsAdvance_preserves_stateInvariant
-    {r : RoomState} {allowHazard : Bool} {start : Position}
-    {goals avoid seen : List Position} {queue : List BfsNode} {fuel : Nat}
-    (hinv : BfsStateInvariant r allowHazard start seen queue) :
-    BfsStateInvariant r allowHazard start
-      (bfsAdvance r goals avoid allowHazard fuel seen queue).1
-      (bfsAdvance r goals avoid allowHazard fuel seen queue).2 := by
-  revert seen queue
-  induction fuel with
-  | zero =>
-      intro seen queue hinv
-      simpa [bfsAdvance] using hinv
-  | succ fuel ih =>
-      intro seen queue hinv
-      cases queue with
-      | nil =>
-          simpa [bfsAdvance] using hinv
-      | cons node rest =>
-          simp [bfsAdvance]
-          exact ih (bfsStateInvariant_step
-            (r := r) (allowHazard := allowHazard) (start := start)
-            (seen := seen) (avoid := avoid) (goals := goals)
-            (node := node) (queue := rest) hinv)
-
-/-- `bfsAdvance` 多步推进不会丢失已经由 `seen + queue` 覆盖的格子。 -/
-theorem bfsAdvance_preserves_tileCovered
-    {r : RoomState} {allowHazard : Bool} {start : Position}
-    {goals avoid seen : List Position} {queue : List BfsNode}
-    {fuel : Nat} {p : Position}
-    (hinv : BfsStateInvariant r allowHazard start seen queue)
-    (hcover : TileCovered seen queue p) :
-    TileCovered
-      (bfsAdvance r goals avoid allowHazard fuel seen queue).1
-      (bfsAdvance r goals avoid allowHazard fuel seen queue).2
-      p := by
-  revert seen queue
-  induction fuel with
-  | zero =>
-      intro seen queue hinv hcover
-      simpa [bfsAdvance] using hcover
-  | succ fuel ih =>
-      intro seen queue hinv hcover
-      cases queue with
-      | nil =>
-          simpa [bfsAdvance] using hcover
-      | cons node rest =>
-          simp [bfsAdvance]
-          have hstepInv :
-              BfsStateInvariant r allowHazard start
-                (seen ++ bfsNodeTiles (expandNode r seen avoid goals allowHazard node))
-                (rest ++ expandNode r seen avoid goals allowHazard node) :=
-            bfsStateInvariant_step
-              (r := r) (allowHazard := allowHazard) (start := start)
-              (seen := seen) (avoid := avoid) (goals := goals)
-              (node := node) (queue := rest) hinv
-          have hstepCover :
-              TileCovered
-                (seen ++ bfsNodeTiles (expandNode r seen avoid goals allowHazard node))
-                (rest ++ expandNode r seen avoid goals allowHazard node)
-                p :=
-            tileCovered_preserved_after_step_of_invariants
-              (r := r) (allowHazard := allowHazard) (start := start)
-              (seen := seen) (avoid := avoid) (goals := goals)
-              (queue := rest) (node := node) (p := p)
-              hinv.1 hinv.2 hcover
-          exact ih hstepInv hstepCover
-
-/--
-若当前队首节点的一个合法邻居 `p` 是新 frontier，则处理当前节点并继续推进任意多步后，
-`p` 仍然被最终的 `seen + queue` 覆盖。
--/
-theorem bfsAdvance_covers_frontier_after_head
-    {r : RoomState} {allowHazard : Bool} {start : Position}
-    {goals avoid seen : List Position} {node : BfsNode} {queue : List BfsNode}
-    {fuel : Nat} {p : Position}
-    (hinv : BfsStateInvariant r allowHazard start seen (node :: queue))
-    (hfrontier :
-      Neighbor node.tile p ∧ walkableForMode r allowHazard p ∧
-        (p ∈ goals ∨ p ∉ avoid)) :
-    TileCovered
-      (bfsAdvance r goals avoid allowHazard (fuel + 1) seen (node :: queue)).1
-      (bfsAdvance r goals avoid allowHazard (fuel + 1) seen (node :: queue)).2
-      p := by
-  simp [bfsAdvance]
-  have hstepInv :
-      BfsStateInvariant r allowHazard start
-        (seen ++ bfsNodeTiles (expandNode r seen avoid goals allowHazard node))
-        (queue ++ expandNode r seen avoid goals allowHazard node) :=
-    bfsStateInvariant_step
-      (r := r) (allowHazard := allowHazard) (start := start)
-      (seen := seen) (avoid := avoid) (goals := goals)
-      (node := node) (queue := queue) hinv
-  have hstepCover :
-      TileCovered
-        (seen ++ bfsNodeTiles (expandNode r seen avoid goals allowHazard node))
-        (queue ++ expandNode r seen avoid goals allowHazard node)
-        p :=
-    tileCovered_step_progress
-      (r := r) (allowHazard := allowHazard) (start := start)
-      (seen := seen) (avoid := avoid) (goals := goals)
-      (queue := queue) (node := node) (p := p)
-      hinv.1 hinv.2 (Or.inr hfrontier)
-  exact bfsAdvance_preserves_tileCovered
-    (r := r) (allowHazard := allowHazard) (start := start)
-    (goals := goals) (avoid := avoid)
-    (seen := seen ++ bfsNodeTiles (expandNode r seen avoid goals allowHazard node))
-    (queue := queue ++ expandNode r seen avoid goals allowHazard node)
-    (fuel := fuel) (p := p)
-    hstepInv hstepCover
-
-/--
-若队列中某个节点 `node` 的合法邻居 `p` 是 frontier，则 BFS 先处理它前面的队列前缀、
-再处理该节点后，`p` 会被覆盖；之后继续推进任意多步也不会丢失该覆盖。
--/
-theorem bfsAdvance_covers_frontier_of_queued_node
-    {r : RoomState} {allowHazard : Bool} {start : Position}
-    {goals avoid seen : List Position}
-    {front suffix : List BfsNode} {node : BfsNode} {fuel : Nat} {p : Position}
-    (hinv : BfsStateInvariant r allowHazard start seen (front ++ node :: suffix))
-    (hfrontier :
-      Neighbor node.tile p ∧ walkableForMode r allowHazard p ∧
-        (p ∈ goals ∨ p ∉ avoid)) :
-    TileCovered
-      (bfsAdvance r goals avoid allowHazard (front.length + 1 + fuel)
-        seen (front ++ node :: suffix)).1
-      (bfsAdvance r goals avoid allowHazard (front.length + 1 + fuel)
-        seen (front ++ node :: suffix)).2
-      p := by
-  induction front generalizing seen suffix with
-  | nil =>
-      simpa [Nat.add_comm, Nat.add_left_comm, Nat.add_assoc] using
-        (bfsAdvance_covers_frontier_after_head
-          (r := r) (allowHazard := allowHazard) (start := start)
-          (goals := goals) (avoid := avoid) (seen := seen)
-          (node := node) (queue := suffix) (fuel := fuel) (p := p)
-          hinv hfrontier)
-  | cons head rest ih =>
-      have hstepInv :
-          BfsStateInvariant r allowHazard start
-            (seen ++ bfsNodeTiles (expandNode r seen avoid goals allowHazard head))
-            (rest ++ node :: (suffix ++ expandNode r seen avoid goals allowHazard head)) := by
-        have hraw :
-            BfsStateInvariant r allowHazard start
-              (seen ++ bfsNodeTiles (expandNode r seen avoid goals allowHazard head))
-              ((rest ++ node :: suffix) ++ expandNode r seen avoid goals allowHazard head) :=
-          bfsStateInvariant_step
-            (r := r) (allowHazard := allowHazard) (start := start)
-            (seen := seen) (avoid := avoid) (goals := goals)
-            (node := head) (queue := rest ++ node :: suffix)
-            (by simpa [List.cons_append] using hinv)
-        simpa [List.append_assoc] using hraw
-      have htarget :
-          TileCovered
-            (bfsAdvance r goals avoid allowHazard (rest.length + 1 + fuel)
-              (seen ++ bfsNodeTiles (expandNode r seen avoid goals allowHazard head))
-              (rest ++ node :: (suffix ++ expandNode r seen avoid goals allowHazard head))).1
-            (bfsAdvance r goals avoid allowHazard (rest.length + 1 + fuel)
-              (seen ++ bfsNodeTiles (expandNode r seen avoid goals allowHazard head))
-              (rest ++ node :: (suffix ++ expandNode r seen avoid goals allowHazard head))).2
-            p :=
-        ih (seen := seen ++ bfsNodeTiles (expandNode r seen avoid goals allowHazard head))
-          (suffix := suffix ++ expandNode r seen avoid goals allowHazard head)
-          hstepInv
-      simpa [bfsAdvance, List.append_assoc, Nat.add_comm, Nat.add_left_comm, Nat.add_assoc]
-        using htarget
-
-/--
-`bfsSearch` 的可靠性核心不变量：如果队列中每个节点都携带有效路径，那么
-搜索返回的路径一定到达某个 goal，且这条路径有效。
--/
+/-- `bfsSearch` 返回的每条路径都是队列不变量保证的有效路径。 -/
 theorem bfsSearch_sound
     {r : RoomState} {start : Position} {goals avoid seen : List Position}
     {queue : List BfsNode}
@@ -2299,220 +1532,6 @@ def BfsConstrainedSimpleReachable
   ∃ path, BfsConstrainedPath r allowHazard start goal goals avoid path ∧ path.Nodup
 
 /--
-无重复的 BFS 约束路径可以接到初始 trace 覆盖定理：
-若存在一条从 `start` 到 `target` 的无重复约束路径，则 trace BFS 推进有限步后覆盖目标。
--/
-theorem constrainedPath_nodup_initial_eventually_traceCovered
-    {r : RoomState} {allowHazard : Bool} {goals avoid : List Position}
-    {start target : Position} {path : List Position}
-    (hpath : BfsConstrainedPath r allowHazard start target goals avoid path)
-    (hnodup : path.Nodup) :
-    ∃ fuel,
-      TraceCovered
-        (bfsAdvanceTrace r goals avoid allowHazard fuel [] [start] [initialBfsNode start]).1
-        (bfsAdvanceTrace r goals avoid allowHazard fuel [] [start] [initialBfsNode start]).2.2
-        target := by
-  rcases hpath with ⟨hvalid, havoid⟩
-  rcases hvalid with ⟨hend, hwalks, hchain⟩
-  have hsuffix :
-      ConstrainedSuffix r allowHazard goals avoid start path :=
-    constrainedSuffix_of_chain
-      (path := path) (start := start)
-      hend.1 hnodup hwalks hchain havoid
-  exact constrainedSuffix_initial_eventually_traceCovered
-    (r := r) (allowHazard := allowHazard) (goals := goals) (avoid := avoid)
-    (start := start) (target := target) (path := path)
-    hsuffix hend.2
-
-/-- 无环约束可达的目标最终会被初始 trace BFS 覆盖。 -/
-theorem constrainedSimpleReachable_initial_eventually_traceCovered
-    {r : RoomState} {allowHazard : Bool} {goals avoid : List Position}
-    {start target : Position}
-    (hreachable : BfsConstrainedSimpleReachable r allowHazard start target goals avoid) :
-    ∃ fuel,
-      TraceCovered
-        (bfsAdvanceTrace r goals avoid allowHazard fuel [] [start] [initialBfsNode start]).1
-        (bfsAdvanceTrace r goals avoid allowHazard fuel [] [start] [initialBfsNode start]).2.2
-        target := by
-  rcases hreachable with ⟨path, hpath, hnodup⟩
-  exact constrainedPath_nodup_initial_eventually_traceCovered
-    (r := r) (allowHazard := allowHazard) (goals := goals) (avoid := avoid)
-    (start := start) (target := target) (path := path)
-    hpath hnodup
-
-/-- `bfsAdvanceTrace` 的 seen/queue 投影与 `bfsAdvance` 完全一致。 -/
-theorem bfsAdvanceTrace_project
-    {r : RoomState} {allowHazard : Bool} {goals avoid processed seen : List Position}
-    {queue : List BfsNode} {fuel : Nat} :
-    ((bfsAdvanceTrace r goals avoid allowHazard fuel processed seen queue).2.1,
-      (bfsAdvanceTrace r goals avoid allowHazard fuel processed seen queue).2.2) =
-    bfsAdvance r goals avoid allowHazard fuel seen queue := by
-  revert processed seen queue
-  induction fuel with
-  | zero =>
-      intro processed seen queue
-      simp [bfsAdvanceTrace, bfsAdvance]
-  | succ fuel ih =>
-      intro processed seen queue
-      cases queue with
-      | nil =>
-          simp [bfsAdvanceTrace, bfsAdvance]
-      | cons node rest =>
-          simp [bfsAdvanceTrace, bfsAdvance]
-          exact ih
-
-/-- 如果某个 goal tile 已在当前 BFS 队列中，则 `bfsSearch` 用足够 fuel 会返回。 -/
-theorem bfsSearch_finds_goal_in_queue
-    {r : RoomState} {allowHazard : Bool} {goals avoid seen : List Position}
-    {queue : List BfsNode} {goal : Position}
-    (hgoal : goal ∈ goals)
-    (hqueued : ∃ node, node ∈ queue ∧ node.tile = goal) :
-    ∃ path, bfsSearch r goals avoid allowHazard (queue.length + 1) seen queue = some path := by
-  rcases hqueued with ⟨node, hmem, htile⟩
-  rcases list_mem_split hmem with ⟨front, suffix, hsplit⟩
-  have hgoalBool : containsPos goals node.tile = true := by
-    rw [htile]
-    exact (containsPos_true_iff goals goal).2 hgoal
-  rcases bfsSearch_finds_goal_after_prefix
-      (r := r) (allowHazard := allowHazard) (goals := goals) (avoid := avoid)
-      (seen := seen) (front := front) (suffix := suffix) (node := node)
-      (fuel := queue.length + 1)
-      hgoalBool
-      (by
-        rw [hsplit]
-        simp
-        omega) with
-    ⟨path, hpath⟩
-  refine ⟨path, ?_⟩
-  simpa [hsplit, Nat.add_comm, Nat.add_left_comm, Nat.add_assoc] using hpath
-
-/--
-约束路径的第一步会被初始 BFS 展开发现：如果一条满足当前模式的路径以
-`start :: next :: rest` 开头，那么初始节点展开之后，`next` 已经被新的
-`seen` 覆盖；若它不是旧 `seen` 中的起点，则它作为 child 进入队列。
--/
-theorem constrained_path_first_frontier_covered
-    {r : RoomState} {allowHazard : Bool}
-    {start next goal : Position} {goals avoid rest : List Position}
-    (hpath : BfsConstrainedPath r allowHazard start goal goals avoid
-      (start :: next :: rest)) :
-    next ∈ [start] ++
-        bfsNodeTiles (expandNode r [start] avoid goals allowHazard (initialBfsNode start)) ∧
-      (next ∈ [start] ∨
-        ∃ child,
-          child ∈ expandNode r [start] avoid goals allowHazard (initialBfsNode start) ∧
-            child.tile = next) := by
-  rcases hpath with ⟨hvalid, havoid⟩
-  rcases hvalid with ⟨_hend, hwalks, hchain⟩
-  have hneighbor : Neighbor start next := by
-    simpa [PathChain] using hchain.1
-  have hneighMem : next ∈ gridNeighbors (initialBfsNode start).tile := by
-    simpa [initialBfsNode] using neighbor_mem_gridNeighbors hneighbor
-  have hwalkBool : walkableBool r next allowHazard = true :=
-    walkableBool_complete_mode (hwalks next (by simp))
-  have hallowed : allowedByAvoid avoid goals next = true := by
-    apply allowedByAvoid_of_goal_or_not_avoid
-    by_cases hgoal : next ∈ goals
-    · exact Or.inl hgoal
-    · right
-      exact havoid next (by simp)
-        (by
-          intro hnextStart
-          exact neighbor_ne hneighbor hnextStart.symm)
-        hgoal
-  exact expandNode_frontier_covered
-    (r := r) (allowHazard := allowHazard) (seen := [start])
-    (avoid := avoid) (goals := goals) (node := initialBfsNode start)
-    (nxt := next) hneighMem hwalkBool hallowed
-
-/--
-约束路径的第二步会在有限次 BFS 推进后被覆盖：若路径以
-`start :: mid :: next :: rest` 开头，则从初始状态推进若干步后，`next`
-出现在 `seen + queue` 覆盖中。
--/
-theorem constrained_path_second_frontier_eventually_covered
-    {r : RoomState} {allowHazard : Bool}
-    {start mid next goal : Position} {goals avoid rest : List Position}
-    (hpath : BfsConstrainedPath r allowHazard start goal goals avoid
-      (start :: mid :: next :: rest)) :
-    ∃ fuel,
-      TileCovered
-        (bfsAdvance r goals avoid allowHazard fuel [start] [initialBfsNode start]).1
-        (bfsAdvance r goals avoid allowHazard fuel [start] [initialBfsNode start]).2
-        next := by
-  have hpathOrig := hpath
-  rcases hpath with ⟨hvalid, havoid⟩
-  rcases hvalid with ⟨_hend, hwalks, hchain⟩
-  have hstartMid : Neighbor start mid := by
-    simpa [PathChain] using hchain.1
-  have hmidNext : Neighbor mid next := by
-    simpa [PathChain] using hchain.2.1
-  by_cases hnextStart : next = start
-  · subst next
-    exact ⟨0, initial_tileCovered_start start⟩
-  have hfirst :
-      mid ∈ [start] ++
-          bfsNodeTiles (expandNode r [start] avoid goals allowHazard (initialBfsNode start)) ∧
-        (mid ∈ [start] ∨
-          ∃ child,
-            child ∈ expandNode r [start] avoid goals allowHazard (initialBfsNode start) ∧
-              child.tile = mid) :=
-    constrained_path_first_frontier_covered
-      (r := r) (allowHazard := allowHazard) (start := start)
-      (next := mid) (goal := goal) (goals := goals) (avoid := avoid)
-      (rest := next :: rest) hpathOrig
-  have hmidNotStart : mid ≠ start := by
-    intro h
-    exact neighbor_ne hstartMid h.symm
-  rcases hfirst.2 with hmidSeen | hmidChild
-  · simp at hmidSeen
-    exact False.elim (hmidNotStart hmidSeen)
-  · rcases hmidChild with ⟨child, hchildMem, hchildTile⟩
-    rcases list_mem_split hchildMem with ⟨front, suffix, hsplit⟩
-    have hstepInv :
-        BfsStateInvariant r allowHazard start
-          ([start] ++ bfsNodeTiles (expandNode r [start] avoid goals allowHazard
-            (initialBfsNode start)))
-          (front ++ child :: suffix) := by
-      have hraw :
-          BfsStateInvariant r allowHazard start
-            ([start] ++ bfsNodeTiles (expandNode r [start] avoid goals allowHazard
-              (initialBfsNode start)))
-            ([] ++ expandNode r [start] avoid goals allowHazard (initialBfsNode start)) :=
-        bfsStateInvariant_step
-          (r := r) (allowHazard := allowHazard) (start := start)
-          (seen := [start]) (avoid := avoid) (goals := goals)
-          (node := initialBfsNode start) (queue := [])
-          (initialBfsStateInvariant
-            (r := r) (allowHazard := allowHazard) (start := start)
-            (hwalks start (by simp)))
-      simpa [hsplit] using hraw
-    have hfrontier :
-        Neighbor child.tile next ∧ walkableForMode r allowHazard next ∧
-          (next ∈ goals ∨ next ∉ avoid) := by
-      constructor
-      · simpa [hchildTile] using hmidNext
-      constructor
-      · exact hwalks next (by simp)
-      · by_cases hgoal : next ∈ goals
-        · exact Or.inl hgoal
-        · right
-          exact havoid next (by simp)
-            hnextStart
-            hgoal
-    have hcovered :=
-      bfsAdvance_covers_frontier_of_queued_node
-        (r := r) (allowHazard := allowHazard) (start := start)
-        (goals := goals) (avoid := avoid)
-        (seen := [start] ++ bfsNodeTiles (expandNode r [start] avoid goals allowHazard
-          (initialBfsNode start)))
-        (front := front) (suffix := suffix) (node := child) (fuel := 0)
-        (p := next) hstepInv hfrontier
-    refine ⟨front.length + 2, ?_⟩
-    simpa [bfsAdvance, hsplit, Nat.add_comm, Nat.add_left_comm, Nat.add_assoc]
-      using hcovered
-
-/--
 `bfsPath_constrained_sound`：任意 hazard/avoid 模式下，只要实际 BFS 返回路径，
 该路径就满足同一模式下的可行走约束和 `avoid` 例外规则。
 -/
@@ -2566,6 +1585,103 @@ theorem bfsPath_constrained_sound
             rw [hnode]
             exact initialBfsNode_avoids_except_start_goals start goals avoid)
           hfind
+
+/-! ## Python GoTo 两阶段 BFS 的可验证性质 -/
+
+/-- primary 结果直接来自同时避开 base 和怪物危险格的第一次 BFS。 -/
+theorem twoStageBfs_primary_origin
+    {r : RoomState} {allowHazard : Bool} {start : Position}
+    {goals baseAvoid monsterAvoid path : List Position}
+    (hplan : twoStageBfsPath r start goals baseAvoid monsterAvoid allowHazard =
+      some (.primary path)) :
+    bfsPath r start goals (baseAvoid ++ monsterAvoid) allowHazard = some path := by
+  unfold twoStageBfsPath at hplan
+  cases hprimary : bfsPath r start goals (baseAvoid ++ monsterAvoid) allowHazard with
+  | none =>
+      cases hfallback : bfsPath r start goals baseAvoid allowHazard <;>
+        simp [hprimary, hfallback] at hplan
+  | some primaryPath =>
+      simp [hprimary] at hplan
+      subst primaryPath
+      rfl
+
+/-- fallback 只在 primary 返回 `none` 后才会被采用。 -/
+theorem twoStageBfs_fallback_after_primary_none
+    {r : RoomState} {allowHazard : Bool} {start : Position}
+    {goals baseAvoid monsterAvoid path : List Position}
+    (hplan : twoStageBfsPath r start goals baseAvoid monsterAvoid allowHazard =
+      some (.fallback path)) :
+    bfsPath r start goals (baseAvoid ++ monsterAvoid) allowHazard = none ∧
+      bfsPath r start goals baseAvoid allowHazard = some path := by
+  unfold twoStageBfsPath at hplan
+  cases hprimary : bfsPath r start goals (baseAvoid ++ monsterAvoid) allowHazard with
+  | some primaryPath => simp [hprimary] at hplan
+  | none =>
+      cases hfallback : bfsPath r start goals baseAvoid allowHazard with
+      | none => simp [hprimary, hfallback] at hplan
+      | some fallbackPath =>
+          simp [hprimary, hfallback] at hplan
+          subst fallbackPath
+          exact ⟨rfl, rfl⟩
+
+/--
+primary 路径满足完整受约束 soundness：路径合法，且除起点和目标例外外，
+不进入 base avoid 或 tracker 怪物危险格。
+-/
+theorem twoStageBfs_primary_sound
+    {r : RoomState} {allowHazard : Bool} {start : Position}
+    {goals baseAvoid monsterAvoid path : List Position}
+    (hstart : walkableForMode r allowHazard start)
+    (hplan : twoStageBfsPath r start goals baseAvoid monsterAvoid allowHazard =
+      some (.primary path)) :
+    ∃ goal, goal ∈ goals ∧
+      BfsConstrainedPath r allowHazard start goal goals
+        (baseAvoid ++ monsterAvoid) path := by
+  exact bfsPath_constrained_sound hstart (twoStageBfs_primary_origin hplan)
+
+/-- primary 路径的内部非目标节点不进入 tracker 怪物危险集合。 -/
+theorem twoStageBfs_primary_avoids_monsters
+    {r : RoomState} {allowHazard : Bool} {start : Position}
+    {goals baseAvoid monsterAvoid path : List Position}
+    (hstart : walkableForMode r allowHazard start)
+    (hplan : twoStageBfsPath r start goals baseAvoid monsterAvoid allowHazard =
+      some (.primary path)) :
+    ∀ p, p ∈ path → p ≠ start → p ∉ goals → p ∉ monsterAvoid := by
+  rcases twoStageBfs_primary_sound hstart hplan with ⟨goal, _hgoal, hpath⟩
+  intro p hp hne hnotGoal hmonster
+  exact (hpath.2 p hp hne hnotGoal) (by simp [hmonster])
+
+/--
+fallback 路径不承诺避开怪物，但仍满足与 Python 一致的静态安全性：
+端点、邻接性、边界、阻塞和 hazard 模式都正确，且仍避开 base avoid。
+-/
+theorem twoStageBfs_fallback_sound
+    {r : RoomState} {allowHazard : Bool} {start : Position}
+    {goals baseAvoid monsterAvoid path : List Position}
+    (hstart : walkableForMode r allowHazard start)
+    (hplan : twoStageBfsPath r start goals baseAvoid monsterAvoid allowHazard =
+      some (.fallback path)) :
+    ∃ goal, goal ∈ goals ∧
+      BfsConstrainedPath r allowHazard start goal goals baseAvoid path := by
+  exact bfsPath_constrained_sound hstart
+    (twoStageBfs_fallback_after_primary_none hplan).2
+
+/-- 两阶段 BFS 无论成功于哪个分支，返回路径都是合法的静态环境路径。 -/
+theorem twoStageBfs_path_sound
+    {r : RoomState} {allowHazard : Bool} {start : Position}
+    {goals baseAvoid monsterAvoid : List Position} {plan : TwoStageBfsResult}
+    (hstart : walkableForMode r allowHazard start)
+    (hplan : twoStageBfsPath r start goals baseAvoid monsterAvoid allowHazard =
+      some plan) :
+    ∃ goal, goal ∈ goals ∧
+      ValidPathForMode r allowHazard start goal plan.path := by
+  cases plan with
+  | primary primaryPath =>
+      rcases twoStageBfs_primary_sound hstart hplan with ⟨goal, hgoal, hvalid, _⟩
+      exact ⟨goal, hgoal, hvalid⟩
+  | fallback fallbackPath =>
+      rcases twoStageBfs_fallback_sound hstart hplan with ⟨goal, hgoal, hvalid, _⟩
+      exact ⟨goal, hgoal, hvalid⟩
 
 /--
 `bfs_none_of_unreachable`：若没有任何目标格从起点可达，则实际 BFS 不可能返回路径，
@@ -2682,6 +1798,92 @@ theorem reachable_tiles_sound
       exact ⟨[start], singleton_validPath hstart⟩)
     p hp
 
+/-! ## `reachableTiles` 完备性的闭包化简 -/
+
+/-- 一个格子集合对所有静态可走邻居闭合。 -/
+def WalkableNeighborClosed (r : RoomState) (xs : List Position) : Prop :=
+  ∀ p, p ∈ xs → ∀ q, Neighbor p q → walkable r q → q ∈ xs
+
+/-- 若集合对可走邻居闭合，则从集合中首节点出发的整条可走链都在集合中。 -/
+theorem pathChain_mem_of_walkableNeighborClosed
+    {r : RoomState} {xs path : List Position}
+    (hclosed : WalkableNeighborClosed r xs)
+    (hwalk : PathWalkable r path)
+    (hchain : PathChain path) :
+    ∀ p, path.head? = some p → p ∈ xs → ∀ q, q ∈ path → q ∈ xs := by
+  induction path with
+  | nil => simp
+  | cons p rest ih =>
+      intro first hhead hp q hq
+      simp at hhead
+      subst first
+      cases rest with
+      | nil =>
+          simp at hq
+          subst q
+          exact hp
+      | cons next tail =>
+          simp [PathChain] at hchain
+          have hnextWalk : walkable r next := hwalk next (by simp)
+          have hnext : next ∈ xs := hclosed p hp next hchain.1 hnextWalk
+          simp at hq
+          rcases hq with rfl | hq
+          · exact hp
+          · exact ih
+              (by intro x hx; exact hwalk x (by simp [hx]))
+              hchain.2 next (by simp) hnext q (by simpa using hq)
+
+/--
+任意包含起点且对可走邻居闭合的集合，必然包含所有普通 `Reachable` 目标。
+这把 `reachableTiles` 完备性的剩余任务精确缩减为“80 步搜索结果对可走邻居闭合”。
+-/
+theorem reachable_of_mem_and_walkableNeighborClosed
+    {r : RoomState} {start goal : Position} {xs : List Position}
+    (hstart : start ∈ xs)
+    (hclosed : WalkableNeighborClosed r xs)
+    (hreachable : Reachable r start goal) :
+    goal ∈ xs := by
+  rcases hreachable with ⟨path, hend, hwalk, hchain⟩
+  have hall := pathChain_mem_of_walkableNeighborClosed hclosed hwalk hchain
+    start hend.1 hstart
+  rcases List.getLast?_eq_some_iff.mp hend.2 with ⟨pre, hpath⟩
+  exact hall goal (by rw [hpath]; simp)
+
+/-! ## 抽象闭包搜索的算法规格 -/
+
+/--
+抽象搜索结果的合法性规格：结果包含起点，并且对静态可走邻居闭合。
+这是不依赖 queue、fuel 或具体列表更新的规格层接口。
+-/
+def AbstractClosureSearchSpec
+    (r : RoomState) (start : Position) (result : List Position) : Prop :=
+  start ∈ result ∧ WalkableNeighborClosed r result
+
+/--
+抽象闭包搜索的完备性：任意满足闭包规格的搜索结果，都包含从起点
+可达的所有目标。
+-/
+theorem abstractClosureSearch_complete
+    {r : RoomState} {start goal : Position} {result : List Position}
+    (hspec : AbstractClosureSearchSpec r start result)
+    (hreachable : Reachable r start goal) :
+    goal ∈ result := by
+  exact reachable_of_mem_and_walkableNeighborClosed
+    hspec.1 hspec.2 hreachable
+
+/-- 抽象搜索规格的声明与实现无关：只要实现能返回该规格的结果，完备性立即成立。 -/
+def AbstractClosureSearch
+    (r : RoomState) (start : Position) : Type :=
+  { result : List Position // AbstractClosureSearchSpec r start result }
+
+/-- 从抽象规格搜索器中取出结果后，完备性仍然成立。 -/
+theorem abstractClosureSearch_result_complete
+    {r : RoomState} {start goal : Position}
+    (search : AbstractClosureSearch r start)
+    (hreachable : Reachable r start goal) :
+    goal ∈ search.1 := by
+  exact abstractClosureSearch_complete search.2 hreachable
+
 /-!
   ## BFS 完备性与最短性的正确陈述
 
@@ -2768,99 +1970,73 @@ theorem bfs_complete_unconstrained_none_counterexample :
     bfsPath corridorRoomForBfsCounterexample (0, 0) [(2, 0)] [(1, 0)] false = none := by
   native_decide
 
-/-- `bfs_complete` 的基例：目标就是起点时，实际 BFS 立即返回单点路径。 -/
-theorem bfs_complete_start_goal
-    {r : RoomState} {allowHazard : Bool} {start : Position} {avoid : List Position} :
-    ∃ path, bfsPath r start [start] avoid allowHazard = some path := by
-  exact ⟨[start], by simp [bfsPath, containsPos]⟩
+/-! ## 无约束最短性的反例 -/
+
+/-- 开放房间：所有界内格子都可走，用于对比普通最短路径和避让 BFS。 -/
+def openRoomForBfsShortestCounterexample : RoomState :=
+  { (default : RoomState) with
+    walls := []
+    traps := []
+    monsters := []
+    chests := []
+    npcs := []
+    dynamicObjects := []
+    defaultSpawn := (0, 0) }
+
+/-- 普通静态图上存在长度为 3 的直达有效路径。 -/
+theorem bfs_shortest_unconstrained_direct_path_counterexample :
+    ValidPath openRoomForBfsShortestCounterexample (0, 0) (2, 0)
+      [(0, 0), (1, 0), (2, 0)] := by
+  unfold ValidPath PathEndpoints PathWalkable
+  constructor
+  · simp
+  constructor
+  · intro p hp
+    simp at hp
+    rcases hp with hp | hp | hp <;> subst p <;>
+      unfold walkable walkableWithHazard <;>
+      refine ⟨by unfold InBounds; omega, by native_decide, ?_⟩ <;>
+      intro _ <;> native_decide
+  · simp [PathChain, Neighbor]
 
 /--
-`bfs_complete` 的一步情形：目标是起点的可行邻格时，实际 BFS 第一轮展开后
-一定能返回某条路径。目标格允许作为 `avoid` 的例外。
+把直达路径的中间格 `(1,0)` 放入 `avoid` 后，BFS 会返回长度为 5 的绕行路径。
 -/
-theorem bfs_complete_one_step
-    {r : RoomState} {allowHazard : Bool} {start goal : Position} {avoid : List Position}
-    (hneighbor : goal ∈ gridNeighbors start)
-    (hwalk : walkableBool r goal allowHazard = true)
-    (hnotStart : goal ≠ start) :
-    ∃ path, bfsPath r start [goal] avoid allowHazard = some path := by
-  unfold bfsPath
-  have hstartGoal : containsPos [goal] start = false := by
-    unfold containsPos
-    simp [hnotStart]
-  simp [hstartGoal]
-  unfold bfsSearch
-  have hinitNotGoal : containsPos [goal] (initialBfsNode start).tile = false := by
-    unfold initialBfsNode
-    exact hstartGoal
-  simp [hinitNotGoal]
-  have hseen : containsPos [start] goal = false := by
-    unfold containsPos
-    simp [show ¬ start = goal by
-      intro h
-      exact hnotStart h.symm]
-  have hallowed : allowedByAvoid avoid [goal] goal = true := by
-    unfold allowedByAvoid containsPos
-    simp
-  have hchild :
-      { tile := goal, path := [start] ++ [goal] } ∈
-        expandNode r [start] avoid [goal] allowHazard (initialBfsNode start) :=
-    expandNode_contains_allowed_neighbor
-      (node := initialBfsNode start) (nxt := goal)
-      (by simpa [initialBfsNode] using hneighbor)
-      hseen hwalk hallowed
-  rcases list_mem_split hchild with ⟨front, suffix, hsplit⟩
-  have hgoalNode :
-      containsPos [goal] ({ tile := goal, path := [start] ++ [goal] } : BfsNode).tile = true := by
-    unfold containsPos
-    simp
-  rcases bfsSearch_finds_goal_after_prefix
-      (r := r) (allowHazard := allowHazard) (goals := [goal]) (avoid := avoid)
-      (seen := [start] ++ bfsNodeTiles (expandNode r [start] avoid [goal] allowHazard
-        (initialBfsNode start)))
-      (front := front) (suffix := suffix)
-      (node := ({ tile := goal, path := [start] ++ [goal] } : BfsNode))
-      (fuel := 79)
-      hgoalNode
-      (by
-        have hfrontLen :
-            front.length <
-              (expandNode r [start] avoid [goal] allowHazard
-                (initialBfsNode start)).length + 1 := by
-          have hprefixLen :
-              front.length + 1 ≤
-                (expandNode r [start] avoid [goal] allowHazard
-                  (initialBfsNode start)).length := by
-            rw [hsplit]
-            simp
-          omega
-        have hchildrenBound :
-            (expandNode r [start] avoid [goal] allowHazard
-              (initialBfsNode start)).length ≤ 4 := by
-          unfold expandNode gridNeighbors initialBfsNode
-          by_cases hy : start.2 = 0 <;> by_cases hx : start.1 = 0 <;>
-            exact Nat.le_trans (List.length_filterMap_le _ _) (by simp [hy, hx])
-        omega) with
-    ⟨path, hpath⟩
-  refine ⟨path, ?_⟩
-  simpa [hsplit] using hpath
+theorem bfs_shortest_unconstrained_detour_counterexample :
+    bfsPath openRoomForBfsShortestCounterexample
+      (0, 0) [(2, 0)] [(1, 0)] false =
+      some [(0, 0), (0, 1), (1, 1), (2, 1), (2, 0)] := by
+  native_decide
 
-/-- `bfs_shortest` 的基例：目标就是起点时，返回的单点路径不长于任何约束有效路径。 -/
-theorem bfs_shortest_start_goal
-    {r : RoomState} {allowHazard : Bool} {start : Position} {avoid path alt : List Position}
-    (hfind : bfsPath r start [start] avoid allowHazard = some path)
-    (halt : BfsConstrainedPath r allowHazard start start [start] avoid alt) :
-    path.length ≤ alt.length := by
-  unfold bfsPath at hfind
-  simp [containsPos] at hfind
-  subst path
-  rcases halt with ⟨hvalid, _havoid⟩
-  rcases hvalid with ⟨hend, _hwalk, _hchain⟩
-  unfold PathEndpoints at hend
-  cases alt with
-  | nil =>
-      simp at hend
-  | cons p ps =>
-      simp
+/--
+因此 BFS 返回路径可以严格长于某条普通 `ValidPath`；相对于不考虑 `avoid`
+的普通路径集合，无约束最短性命题不成立。
+-/
+theorem bfs_shortest_unconstrained_counterexample :
+    ∃ bfsResult alternative,
+      bfsPath openRoomForBfsShortestCounterexample
+          (0, 0) [(2, 0)] [(1, 0)] false = some bfsResult ∧
+        ValidPath openRoomForBfsShortestCounterexample (0, 0) (2, 0) alternative ∧
+        alternative.length < bfsResult.length := by
+  refine ⟨[(0, 0), (0, 1), (1, 1), (2, 1), (2, 0)],
+    [(0, 0), (1, 0), (2, 0)], ?_, ?_, by decide⟩
+  · exact bfs_shortest_unconstrained_detour_counterexample
+  · exact bfs_shortest_unconstrained_direct_path_counterexample
+
+/-!
+  因此，本文件不声称 `bfsPath` 相对普通 `Reachable` 具有完备性。
+
+  上述反例也意味着，不能无条件地声称“Agent 总能返回普通可达路径中的
+  最短路径”：对于普通可达但被 `avoid` 切断的目标，它根本不返回路径。
+  这不等于否定 BFS 在由 `allowHazard` 和 `avoid` 诱导的受约束图上的最短性；
+  只是该更弱性质不是当前 Agent 正确性论证所必需的，因而不在此继续展开。
+
+  当前已证明且与 Agent 直接相关的保证是：
+
+  * 返回 `some path` 时，路径的端点、邻接性和可行走性正确；
+  * 路径不越界、不穿过阻塞格，默认模式下不经过危险格；
+  * 除起点和目标例外外，路径不进入 `avoid` 集合；
+  * 如果所有目标都不可达，则搜索返回 `none`。
+-/
 
 end EnvFormalization

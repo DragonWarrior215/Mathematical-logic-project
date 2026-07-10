@@ -164,6 +164,41 @@ def bfsPath
   else
     bfsSearch r goals avoid allowHazard 80 [start] [initialBfsNode start]
 
+/--
+Python `GoToTile` 的两阶段搜索结果。`primary` 表示在 tracker 怪物危险区外
+找到路径；`fallback` 表示保守搜索失败后，忽略怪物危险区才找到路径。
+-/
+inductive TwoStageBfsResult where
+  | primary (path : List Position)
+  | fallback (path : List Position)
+  deriving Repr, DecidableEq
+
+/-- 丢弃分支标记，只取两阶段 BFS 返回的路径。 -/
+def TwoStageBfsResult.path : TwoStageBfsResult → List Position
+  | .primary path => path
+  | .fallback path => path
+
+/--
+与 Python `GoToTile.step` 一致的两阶段 BFS：
+
+1. primary 同时避开 learned-blocked/额外禁入格和 tracker 怪物危险格；
+2. primary 返回 `none` 时，fallback 仍避开 learned-blocked/额外禁入格，
+   但不再把怪物危险区当作 BFS 禁入格。
+
+两个分支都保留 BFS 的 goal 例外规则，并且普通导航的最终移动仍由
+agent 层 `shieldAction` 逐步过滤。
+-/
+def twoStageBfsPath
+    (r : RoomState) (start : Position) (goals : List Position)
+    (baseAvoid monsterAvoid : List Position)
+    (allowHazard : Bool := false) : Option TwoStageBfsResult :=
+  match bfsPath r start goals (baseAvoid ++ monsterAvoid) allowHazard with
+  | some path => some (.primary path)
+  | none =>
+      match bfsPath r start goals baseAvoid allowHazard with
+      | some path => some (.fallback path)
+      | none => none
+
 /-- reachable_tiles 的循环：持续展开队列，返回 seen。 -/
 def reachableTilesSearch
     (r : RoomState) (avoid : List Position) :
@@ -220,8 +255,13 @@ def moveTowardTile (here waypoint : Position) : Option Action :=
   else
     none
 
-/-- Lean 版 `GoToTile.step` 的核心。monster shield 在 agent 层统一处理。 -/
-def goToTileStep (r : RoomState) (here : Position) (st : GoToRuntime) : GoToStepResult :=
+/--
+Lean 版 `GoToTile.step` 的核心。它先用 `monsterAvoid` 做保守搜索，失败后
+按 Python 实现重试忽略怪物的 fallback BFS；monster shield 在 agent 层统一处理。
+-/
+def goToTileStep
+    (r : RoomState) (here : Position) (st : GoToRuntime)
+    (monsterAvoid : List Position := []) : GoToStepResult :=
   let st := { st with steps := st.steps + 1 }
   if st.steps > st.maxSteps then
     GoToStepResult.failed "timeout"
@@ -232,9 +272,10 @@ def goToTileStep (r : RoomState) (here : Position) (st : GoToRuntime) : GoToStep
     else if containsPos goals here then
       GoToStepResult.succeeded here
     else
-      match bfsPath r here goals st.avoid false with
+      match twoStageBfsPath r here goals st.avoid monsterAvoid false with
       | none => GoToStepResult.failed "no_path"
-      | some path =>
+      | some plan =>
+          let path := plan.path
           let waypoint := match getAt? path 1 with
             | some p => p
             | none => here
@@ -484,6 +525,18 @@ def blockedByTrackedMonstersBool
     (tracked : List TrackedMonster) (margin : Nat) (p : Position) : Bool :=
   tracked.any (fun m => monsterBlockedTileBool m margin p)
 
+/-- 10×8 格子的可执行枚举，用于从 tracker 危险谓词产生 Python BFS 的 forbidden 集合。 -/
+def agentGridPositions : List Position :=
+  List.flatMap (fun x => (List.range 8).map (fun y => (x, y))) (List.range 10)
+
+/--
+把 tracker 中的怪物不确定区转为 primary BFS 使用的 tile 禁入集合。
+`margin` 是 tile 层额外安全边距；默认 0 表示使用 `dangerRadius` 自带的一格边距。
+-/
+def trackedMonsterAvoidTiles
+    (tracked : List TrackedMonster) (margin : Nat := 0) : List Position :=
+  agentGridPositions.filter (fun p => blockedByTrackedMonstersBool tracked margin p)
+
 /-- 可执行版 safety shield：非移动动作透传，安全移动透传，危险移动换成 fallback。 -/
 def shieldAction (w : WorldState) (tracked : List TrackedMonster) (requested : Action) : Action :=
   match actionTarget? w requested with
@@ -501,15 +554,28 @@ def learnedAvoidTiles (s : NsiAgentState) : List Position :=
   s.memory.learnedBlocked.filterMap (fun entry =>
     if learnedBlockActive s.memory.stepCount entry then some entry.pos else none)
 
-/-- agent 当前房间里的 BFS 路径查询。 -/
+/-- agent 当前房间里的 Python-style 两阶段 BFS 路径查询。 -/
+def agentBfsPlan
+    (s : NsiAgentState) (start : Position) (goals : List Position)
+    (extraAvoid : List Position := []) : Option TwoStageBfsResult :=
+  twoStageBfsPath
+    (currentRoom s.world) start goals
+    (learnedAvoidTiles s ++ extraAvoid)
+    (trackedMonsterAvoidTiles s.tracker.tracked)
+    false
+
+/-- 只取 agent 两阶段 BFS 返回的路径，保留旧的查询接口。 -/
 def agentBfsPath
     (s : NsiAgentState) (start : Position) (goals : List Position)
     (extraAvoid : List Position := []) : Option (List Position) :=
-  bfsPath (currentRoom s.world) start goals (learnedAvoidTiles s ++ extraAvoid) false
+  (agentBfsPlan s start goals extraAvoid).map TwoStageBfsResult.path
 
 /-- agent 当前房间里的 GoTo 单步。 -/
 def agentGoToStep (s : NsiAgentState) (goto : GoToRuntime) : GoToStepResult :=
-  goToTileStep (currentRoom s.world) s.world.player { goto with avoid := learnedAvoidTiles s ++ goto.avoid }
+  goToTileStep
+    (currentRoom s.world) s.world.player
+    { goto with avoid := learnedAvoidTiles s ++ goto.avoid }
+    (trackedMonsterAvoidTiles s.tracker.tracked)
 
 /--
 Lean 版 `Policy.act`。

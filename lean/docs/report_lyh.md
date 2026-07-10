@@ -51,6 +51,12 @@ pos := (2, 3)
 
 因此，后续的 BFS、怪物危险、shield、GoTo、组合执行和任务完成等定理，都可以以 `EnvFormalization.lean` 提供的环境语义和 `NsiAgentFormalization.lean` 提供的智能体运行语义作为底层框架来展开证明。
 
+> 寻路机制：
+>
+> Agent 普通导航首先在 tracker 怪物危险区域之外执行保守 BFS；若保守危险区域切断全部路径，则退化为忽略怪物区域但仍遵守静态阻塞、环境危险格和 learned-blocked 的 fallback BFS。Primary 分支的内部节点不会进入 tracker 怪物危险区；两个分支返回的路径都满足静态路径合法性。最终导航移动由可执行 Safety Shield 逐步过滤，在 tracker 覆盖真实怪物位置的条件下，Shield 放行的移动在真实怪物语义中安全。
+
+
+
 ## 0. 改进点
 
 1. 在 `EnvFormalization.lean` 中的 291 行是硬编码的地图边界。
