@@ -17,7 +17,7 @@ def isMonsterTile (r : RoomState) (p : Position) : Bool :=
 
 /-- 某格是否是危险格：激活陷阱或怪物所在格。 -/
 def isHazardTile (r : RoomState) (p : Position) : Bool :=
-  hasActiveTrapAt r p || isMonsterTile r p
+  (trapAt? r p).isSome || isMonsterTile r p
 
 /-- 可行走格的几何条件；当 `allowHazard = false` 时，还要求该格不是危险格。 -/
 def walkableWithHazard (r : RoomState) (p : Position) (allowHazard : Bool) : Prop :=
