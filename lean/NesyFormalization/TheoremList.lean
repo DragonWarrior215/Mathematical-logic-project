@@ -10,6 +10,7 @@ import NesyFormalization.HighPlanner
 import NesyFormalization.RoomBfs
 import NesyFormalization.Composition
 import NesyFormalization.TaskCompletion
+import NesyFormalization.DSLExecution
 
 /-!
   按照 `../docs/定理列表.xlsx` 的章节聚合上层定理文件。
