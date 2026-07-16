@@ -1,0 +1,132 @@
+Loading weights:   0%|          | 0/824 [00:00<?, ?it/s]Loading weights:   2%|▏         | 15/824 [00:00<00:05, 144.35it/s]Loading weights:   5%|▍         | 41/824 [00:00<00:03, 205.74it/s]Loading weights:   8%|▊         | 65/824 [00:00<00:03, 214.18it/s]Loading weights:  12%|█▏        | 99/824 [00:00<00:03, 232.25it/s]Loading weights:  15%|█▌        | 124/824 [00:00<00:03, 227.20it/s]Loading weights:  18%|█▊        | 149/824 [00:00<00:02, 228.90it/s]Loading weights:  21%|██        | 173/824 [00:00<00:02, 225.77it/s]Loading weights:  25%|██▌       | 207/824 [00:00<00:02, 253.21it/s]Loading weights:  28%|██▊       | 233/824 [00:01<00:02, 228.89it/s]Loading weights:  31%|███       | 257/824 [00:01<00:02, 224.86it/s]Loading weights:  35%|███▌      | 291/824 [00:01<00:02, 234.35it/s]Loading weights:  38%|███▊      | 317/824 [00:01<00:02, 233.58it/s]Loading weights:  42%|████▏     | 350/824 [00:01<00:01, 249.21it/s]Loading weights:  46%|████▌     | 375/824 [00:01<00:01, 238.35it/s]Loading weights:  48%|████▊     | 399/824 [00:01<00:01, 237.40it/s]Loading weights:  51%|█████▏    | 424/824 [00:01<00:01, 239.72it/s]Loading weights:  62%|██████▏   | 510/824 [00:01<00:00, 413.09it/s]Loading weights:  74%|███████▎  | 606/824 [00:02<00:00, 567.85it/s]Loading weights:  86%|████████▋ | 711/824 [00:02<00:00, 707.38it/s]Loading weights:  99%|█████████▊| 812/824 [00:02<00:00, 786.28it/s]Loading weights: 100%|██████████| 824/824 [00:02<00:00, 365.22it/s]
+mathematical_logic/task_1 stage=default obs_variant=default map_variant=default seed=0 success=True steps=280 reward=127.150
+mathematical_logic/task_2 stage=default obs_variant=default map_variant=default seed=0 success=True steps=176 reward=128.240
+mathematical_logic/task_3 stage=default obs_variant=default map_variant=default seed=0 success=True steps=541 reward=164.590
+mathematical_logic/task_4 stage=default obs_variant=default map_variant=default seed=0 success=True steps=1514 reward=264.760
+mathematical_logic/task_5 stage=default obs_variant=default map_variant=default seed=0 success=False steps=1000 reward=56.700
+
+mathematical_logic/task_1 [default]
+  episodes:     1
+  success_rate: 1.000
+  avg_steps:    280.0
+  avg_reward:   127.150
+  variants:     {'default': 1}
+  map_variants: {'default': 1}
+  progress:
+    key_collected: 1.000
+    chest_opened: 1.000
+    room_changed: 1.000
+    door_opened: 1.000
+    exit_reached: 1.000
+    environment_completed: 1.000
+    world_completed: 1.000
+
+mathematical_logic/task_2 [default]
+  episodes:     1
+  success_rate: 1.000
+  avg_steps:    176.0
+  avg_reward:   128.240
+  variants:     {'default': 1}
+  map_variants: {'default': 1}
+  progress:
+    monster_killed: 1.000
+    key_collected: 1.000
+    chest_opened: 1.000
+    room_changed: 1.000
+    exit_reached: 1.000
+    environment_completed: 1.000
+    world_completed: 1.000
+
+mathematical_logic/task_3 [default]
+  episodes:     1
+  success_rate: 1.000
+  avg_steps:    541.0
+  avg_reward:   164.590
+  variants:     {'default': 1}
+  map_variants: {'default': 1}
+  milestones:
+    monster_killed: 1.000
+    key_collected: 1.000
+  progress:
+    monster_killed: 1.000
+    key_collected: 1.000
+    chest_opened: 1.000
+    room_changed: 1.000
+    door_opened: 1.000
+    exit_reached: 1.000
+    environment_completed: 1.000
+    world_completed: 1.000
+
+mathematical_logic/task_4 [default]
+  episodes:     1
+  success_rate: 1.000
+  avg_steps:    1514.0
+  avg_reward:   264.760
+  variants:     {'default': 1}
+  map_variants: {'default': 1}
+  milestones:
+    switch_activated: 1.000
+    key_collected: 1.000
+    door_opened: 1.000
+    item_collected: 1.000
+    monster_killed: 1.000
+  progress:
+    monster_killed: 1.000
+    key_collected: 1.000
+    chest_opened: 1.000
+    gold_collected: 1.000
+    item_collected: 1.000
+    room_changed: 1.000
+    door_opened: 1.000
+    exit_reached: 1.000
+    environment_completed: 1.000
+    world_completed: 1.000
+
+mathematical_logic/task_5 [default]
+  episodes:     1
+  success_rate: 0.000
+  avg_steps:    1000.0
+  avg_reward:   56.700
+  variants:     {'default': 1}
+  map_variants: {'default': 1}
+  milestones:
+    chest_opened: 1.000
+    key_collected: 1.000
+    gold_collected: 1.000
+    item_collected: 0.000
+    agent_healed: 1.000
+    button_pressed: 1.000
+    room_changed: 1.000
+    door_opened: 1.000
+    trap_triggered: 0.000
+    monster_killed: 1.000
+    exit_reached: 1.000
+    environment_completed: 0.000
+    world_completed: 0.000
+  progress:
+    monster_killed: 1.000
+    key_collected: 1.000
+    chest_opened: 1.000
+    gold_collected: 1.000
+    agent_healed: 1.000
+    button_pressed: 1.000
+    room_changed: 1.000
+    door_opened: 1.000
+    exit_reached: 1.000
+    agent_dead: 1.000
+  game_event_totals:
+    chest_opened: 3
+    key_collected: 1
+    gold_collected: 1
+    item_collected: 0
+    agent_healed: 1
+    button_pressed: 1
+    room_changed: 5
+    door_opened: 1
+    trap_triggered: 0
+    monster_killed: 2
+    exit_reached: 5
+    environment_completed: 0
+    world_completed: 0
+
+Wrote JSON results to evidence/final/evaluate_5tasks.json

@@ -1,6 +1,6 @@
 """Evaluation entry point.
 
-    python utils/evaluate_policy.py --policy submission_agent.py --tasks ...
+    python utils/evaluate_policy.py --task-policy TASK_ID=submission_agent.py
 
 Inference inputs: pixel frames (obs), the scalar ``last_reward``, the inventory
 provided by the evaluation interface, and ``task_id`` supplied by an explicit

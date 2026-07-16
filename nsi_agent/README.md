@@ -80,8 +80,11 @@ python -m nsi_agent.induction.reflect --task mathematical_logic/task_4
 
 # 3) 最终测评（VLM 后端 + 冻结归纳工件）
 export NSI_VLM_MODEL=<model dir> NSI_VLM_ADAPTER=<adapter dir>
-python utils/evaluate_policy.py --policy submission_agent.py \
-    --tasks mathematical_logic/task_1 ... --num-envs 10
+python utils/evaluate_policy.py \
+    --tasks mathematical_logic/task_1 mathematical_logic/task_2 \
+    --task-policy mathematical_logic/task_1=submission_agent.py \
+    --task-policy mathematical_logic/task_2=submission_agent.py \
+    --info-mode safe --num-envs 1 --seed 0
 ```
 
 ### 获取训练好的感知模型（v4b）
@@ -117,10 +120,12 @@ HF/hf-mirror 公开下载。
     held-out 未见布局 **解析失败 0/200、网格 tile 99.88%、整格全对 95.5%、
     all_ok 95.5%**，实体/出口/朝向保持 100% —— 布局记忆根除，模型在
     完全未见的地图上真实读图。
-- **端到端评测（最终，`evaluate_policy.py --policy submission_agent.py`）：
-  5/5 关全部成功率 100%** ——
+- **历史端到端记录（2026-07-08 旧口径）：5/5 关成功** ——
   - task_1 ✅ **279 步 = Oracle 最优**；task_2 ✅ **195 步（反超上界 197）**；
   - task_3 ✅ 1449 步；task_4 ✅ **1483 步**；task_5 ✅ **1137 步（≈上界 1136）**。
+- **2026-07-16 NesyLink `036df78` + `safe` 复测**：Task 1–4 分别以
+  280 / 176 / 541 / 1514 步完成；Task 5 按任务设计仅保留 1000 步运行轨迹，
+  不将 `world_completed` 作为成功要求。每次提交应以同仓库版本的附件证据为准。
 - **不可见门的系统性处理**（task_4 攻克的关键，报告重点素材）：
   1. 环境事实：渲染器把深渊画在门之后 → 深渊房的门**像素不可见**；
   2. 感知标签对齐像素真相（被覆盖的门标 `-`，不可见之物不该标注）；

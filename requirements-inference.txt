@@ -1,0 +1,9 @@
+# GPU/CUDA-specific PyTorch wheels may require the official PyTorch index.
+torch>=2.4
+transformers>=4.49
+peft>=0.13
+accelerate>=1.0
+Pillow>=10
+
+# Optional: required only when NSI_VLM_4BIT=1 on a supported Linux/CUDA host.
+# bitsandbytes>=0.43
