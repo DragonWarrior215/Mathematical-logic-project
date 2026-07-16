@@ -3,10 +3,13 @@
 Inference-time inputs, per assignment rules:
 - ``obs``  — the pixel frame (sole source of world predicates, via the VLM)
 - ``info["inventory"]`` — explicitly provided by the evaluation interface
-- ``task_id`` — passed by the evaluator to ``reset``; used only as a hint
-  for exploration ordering
+- ``info["task_id"]`` — provided only when the submission is explicitly
+  bound with ``--task-policy``; used to select the frozen task artefact and
+  exploration ordering
 
-Nothing else in ``info`` is read on the inference path. The Oracle backend
+The official safe interface additionally exposes ``last_reward`` as a scalar;
+it is used only to recognise the standard blocked-move penalty. Nothing else
+in ``info`` is read on the inference path. The Oracle backend
 (which reads engine internals) exists strictly for training-time debugging
 and is refused unless explicitly enabled.
 
@@ -87,6 +90,21 @@ class Policy:
         self.ctx.scope.clear()
 
     def act(self, obs: np.ndarray, info: dict[str, Any]) -> int:
+        # NesyLink 036df78 calls reset() without arguments and exposes the
+        # task identifier on the first safe-info payload for --task-policy
+        # bindings. Bind before consuming the first step so task-specific
+        # frozen artefacts and resource policies are active for the episode.
+        if self.memory.task_id is None:
+            task_id = info.get("task_id") if isinstance(info, dict) else None
+            if isinstance(task_id, str) and task_id:
+                self.memory.reset(task_id)
+                self.tracker.reset()
+                self.planner = load_planner(
+                    task_id,
+                    prefer_induced=self.prefer_induced,
+                )
+                self.ctx.scope.clear()
+
         self.memory.on_step(info)                 # inventory view only
         if self._blocked_by_reward(info):         # reward-as-feedback (allowed)
             self.tracker.note_blocked_feedback()
@@ -120,21 +138,31 @@ class Policy:
         A blocked move earns the invalid-action penalty on top of the step
         penalty, which is distinguishable from a normal step's reward.
         """
-        reward = info.get("reward", {}) if isinstance(info, dict) else {}
+        if not isinstance(info, dict):
+            return False
+
+        reward = info.get("reward", {})
         signals = reward.get("reward_signals") or {}
         weights = reward.get("reward_weights") or {}
-        if not signals or "invalid_action" not in weights:
-            return False
-        scalar = 0.0
-        for name, value in signals.items():
-            if isinstance(value, (int, float)) and isinstance(
-                weights.get(name, 0.0), (int, float)
-            ):
-                scalar += float(weights.get(name, 0.0)) * float(value)
-        expected_blocked = float(weights.get("step", 0.0)) + float(
-            weights.get("invalid_action", 0.0)
-        )
-        return abs(scalar - expected_blocked) < 1e-6
+        if signals and "invalid_action" in weights:
+            scalar = 0.0
+            for name, value in signals.items():
+                if isinstance(value, (int, float)) and isinstance(
+                    weights.get(name, 0.0), (int, float)
+                ):
+                    scalar += float(weights.get(name, 0.0)) * float(value)
+            expected_blocked = float(weights.get("step", 0.0)) + float(
+                weights.get("invalid_action", 0.0)
+            )
+            return abs(scalar - expected_blocked) < 1e-6
+
+        # Official safe_info contains only the scalar reward. In the current
+        # Mathematical Logic rewards a normal step is -0.01 and an invalid
+        # move adds -0.05, so a pure wall bump is exactly -0.06.
+        last_reward = info.get("last_reward")
+        return isinstance(last_reward, (int, float)) and abs(
+            float(last_reward) + 0.06
+        ) < 1e-6
 
 
 def make_policy() -> Policy:

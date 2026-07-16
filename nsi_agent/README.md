@@ -34,8 +34,10 @@ reward 反馈检测**（作业允许 reward 作历史反馈：撞墙步含 inval
 ## 测评合规性
 
 推理路径仅使用：`obs`（像素帧 → VLM）、`info["inventory"]`（测评接口显式提供）、
-`info["reward"]`（reward 值反馈）、`reset(task_id)`（接口显式传入，仅影响探索
-方向偏好）。**不读取** agent 坐标、地图真值、实体位置等 `info` 内部状态。
+`info["last_reward"]`（标量 reward 历史）以及通过 `--task-policy` 绑定时提供的
+`info["task_id"]`（选择冻结工件和探索顺序）。新版测评器无参数调用 `reset()`，
+Agent 在 episode 首步从 safe info 完成任务绑定。**不读取** agent 坐标、地图真值、
+实体位置、事件或 reward 明细等内部状态。
 Oracle 后端（`grounding/oracle.py`）只用于训练期标注/录制/调试，`make_policy()`
 不会实例化它。归纳产物是冻结的本地 JSON（`induction/artifacts/`），**测评时
 不调用任何外部 API**。
